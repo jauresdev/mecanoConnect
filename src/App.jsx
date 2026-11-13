@@ -28,7 +28,7 @@ export default function App() {
       .then(([shopList, serviceList, vehicleList]) => {
         const serviceNames = new Map(serviceList.map((item) => [item.id, item.name]));
         const vehicleNames = new Map(vehicleList.map((item) => [item.id, item.name]));
-        const mappedShops = shopList.map((shop, index) => ({
+        const mappedShops = shopList.map((shop) => ({
           id: shop.id,
           apiId: shop.id,
           n: shop.name,
@@ -47,17 +47,15 @@ export default function App() {
           serviceIds: shop.services,
           o: null,
           dom: shop.mobile_service,
-          x: shop.longitude
-            ? Math.max(8, Math.min(92, 48 + Number(shop.longitude) * 100))
-            : 12 + ((index * 19) % 76),
-          y: shop.latitude
-            ? Math.max(8, Math.min(92, 52 - Number(shop.latitude) * 100))
-            : 14 + ((index * 23) % 72),
+          latitude: shop.latitude,
+          longitude: shop.longitude,
           h: "Horaires à confirmer",
           desc: shop.description || "Aucune description renseignée.",
           phone: shop.phone,
           whatsapp: shop.whatsapp,
           address: shop.address,
+          photo: shop.photo,
+          openingHours: shop.opening_hours,
           isVerified: shop.is_verified,
         }));
         if (active) {
@@ -124,7 +122,7 @@ export default function App() {
       {route === "resultats" ? (
         <Results q={q} setQ={setQ} sel={sel} pick={pick} shops={shops} loading={directoryLoading} error={directoryError} services={S} />
       ) : route === "fiche" ? (
-        r ? <Detail r={r} /> : <p className="card mu">Cet atelier n’est plus disponible.</p>
+        r ? <Detail r={r} session={session} /> : <p className="card mu">Cet atelier n’est plus disponible.</p>
       ) : route === "devis" ? (
         r ? <Quote r={r} q={q} user={session?.user} /> : <p className="card mu">Cet atelier n’est plus disponible.</p>
       ) : route === "connexion" || route === "inscription" ? (

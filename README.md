@@ -33,6 +33,12 @@ Le lien **Se connecter** ouvre le formulaire de connexion. **Mécanicien** perme
 
 Après l'ajout d'un atelier, le formulaire se ferme. Le tableau de bord permet ensuite de modifier chaque fiche, filtrer les demandes, répondre aux devis et marquer une intervention acceptée comme terminée. La modification d'une fiche est réservée à son propriétaire.
 
+Chaque réparateur peut ajouter une photo principale (JPG, PNG ou WebP, 5 Mo maximum) et renseigner les horaires jour par jour. En développement, Django sert les images depuis `MEDIA_ROOT` (`media/`). En production, configurez un stockage persistant pour les fichiers média et servez-les via HTTPS.
+
+Les réparateurs peuvent copier les coordonnées d'un point dans Google Maps et les coller dans le champ de localisation (ou coller un lien Google Maps complet contenant les coordonnées) pour faire apparaître leur atelier sur la carte des résultats.
+
+La carte des résultats utilise Google Maps lorsqu'une clé est configurée. Pour l'activer en local, créez un fichier `.env.local` à la racine du frontend et ajoutez `VITE_GOOGLE_MAPS_API_KEY=<votre-clé>`. Activez la facturation Google et l'API Maps JavaScript, puis restreignez la clé à cette API et aux URL de votre application. Ne publiez pas une clé non restreinte. Si la clé est absente ou invalide, une carte OpenStreetMap interactive s'affiche automatiquement. Le visiteur peut cliquer sur **Me localiser** pour calculer les distances à vol d'oiseau : sa position est demandée uniquement après ce clic et n'est pas enregistrée. Les garages à moins de 5 km sont verts, ceux entre 5 et 15 km orange, et ceux à plus de 15 km rouges.
+
 ## PostgreSQL
 
 Créer une base et un utilisateur PostgreSQL, installer les dépendances ci-dessus puis configurer dans l'environnement de déploiement :
@@ -75,7 +81,7 @@ Appliquer ensuite `python manage.py migrate`. En production, fournir la clé sec
 | `POST` | `/api/quotes/{id}/decide/`, `/complete/`, `/cancel/` | Client à l'origine |
 | `GET/POST` | `/api/reviews/` | Avis approuvés publics; publication réservée au client avec devis terminé |
 
-Une réponse réparateur attend `{"response":"..."}`. Le client la retrouve dans son espace après connexion et répond avec `{"decision":"accepted"}` ou `{"decision":"declined"}` sur `/decide/`. Après acceptation, le propriétaire peut marquer la réparation « en cours » avec `/start/`, puis « terminée » avec `/complete/`. Les avis sont masqués jusqu'à leur approbation par un administrateur. Les demandes de devis sont privées : seuls leur client, le réparateur concerné et les administrateurs peuvent les consulter.
+Une réponse réparateur attend `{"response":"..."}`. Le client la retrouve dans son espace après connexion et répond avec `{"decision":"accepted"}` ou `{"decision":"declined"}` sur `/decide/`. Après acceptation, le propriétaire peut marquer la réparation « en cours » avec `/start/`, puis « terminée » avec `/complete/`. Après une réparation terminée, le client peut laisser une note de 1 à 5 étoiles et un commentaire facultatif. Les avis sont masqués jusqu'à leur approbation par un administrateur. Les demandes de devis sont privées : seuls leur client, le réparateur concerné et les administrateurs peuvent les consulter.
 
 ## Contrôles
 

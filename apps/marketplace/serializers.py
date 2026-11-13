@@ -1,3 +1,5 @@
+from datetime import time
+
 from django.contrib.auth import get_user_model
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
@@ -24,11 +26,36 @@ class ReviewSerializer(serializers.ModelSerializer):
     customer_name = serializers.CharField(
         source="customer.first_name", read_only=True
     )
+    is_mine = serializers.SerializerMethodField()
 
     class Meta:
         model = Review
-        fields = ("id", "shop", "customer_name", "rating", "comment", "created_at")
-        read_only_fields = ("id", "customer_name", "created_at")
+        fields = (
+            "id",
+            "shop",
+            "customer_name",
+            "rating",
+            "comment",
+            "is_mine",
+            "is_approved",
+            "created_at",
+        )
+        read_only_fields = (
+            "id",
+            "customer_name",
+            "is_mine",
+            "is_approved",
+            "created_at",
+        )
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_mine(self, review):
+        request = self.context.get("request")
+        return bool(
+            request
+            and request.user.is_authenticated
+            and review.customer_id == request.user.id
+        )
 
     def validate_shop(self, shop):
         if not shop.is_active:
@@ -48,6 +75,16 @@ class ReviewSerializer(serializers.ModelSerializer):
 
 
 class RepairShopSerializer(serializers.ModelSerializer):
+    WEEK_DAYS = {
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
+    }
+
     services = serializers.PrimaryKeyRelatedField(
         many=True, queryset=Service.objects.filter(is_active=True), required=False
     )
@@ -76,6 +113,7 @@ class RepairShopSerializer(serializers.ModelSerializer):
             "longitude",
             "phone",
             "whatsapp",
+            "photo",
             "services",
             "vehicle_types",
             "mobile_service",
@@ -96,6 +134,41 @@ class RepairShopSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         )
+
+    def validate_photo(self, photo):
+        if photo and photo.size > 5 * 1024 * 1024:
+            raise serializers.ValidationError(
+                "La photo ne peut pas dépasser 5 Mo."
+            )
+        return photo
+
+    def validate_opening_hours(self, opening_hours):
+        if not isinstance(opening_hours, dict):
+            raise serializers.ValidationError(
+                "Les horaires doivent être renseignés par jour."
+            )
+        unknown_days = set(opening_hours) - self.WEEK_DAYS
+        if unknown_days:
+            raise serializers.ValidationError("Un jour de la semaine est invalide.")
+        for day, hours in opening_hours.items():
+            if hours is None:
+                continue
+            if not isinstance(hours, dict) or set(hours) != {"open", "close"}:
+                raise serializers.ValidationError(
+                    f"Les horaires de {day} doivent inclure ouverture et fermeture."
+                )
+            try:
+                opening_time = time.fromisoformat(hours["open"])
+                closing_time = time.fromisoformat(hours["close"])
+            except (TypeError, ValueError):
+                raise serializers.ValidationError(
+                    f"Les heures de {day} sont invalides."
+                ) from None
+            if opening_time >= closing_time:
+                raise serializers.ValidationError(
+                    f"La fermeture de {day} doit être après l’ouverture."
+                )
+        return opening_hours
 
     @extend_schema_field(serializers.CharField())
     def get_owner_name(self, shop):

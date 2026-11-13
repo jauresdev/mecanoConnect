@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, apiList, clearSession } from "../api";
+import { parseMapLocation } from "../location";
 import { go } from "../router";
 
 const EMPTY_SHOP = {
@@ -9,12 +10,25 @@ const EMPTY_SHOP = {
   city: "Parakou",
   district: "",
   address: "",
+  latitude: "",
+  longitude: "",
   phone: "",
   whatsapp: "",
+  opening_hours: {},
   mobile_service: false,
   services: [],
   vehicle_types: [],
 };
+
+const WEEK_DAYS = [
+  ["monday", "Lundi"],
+  ["tuesday", "Mardi"],
+  ["wednesday", "Mercredi"],
+  ["thursday", "Jeudi"],
+  ["friday", "Vendredi"],
+  ["saturday", "Samedi"],
+  ["sunday", "Dimanche"],
+];
 
 const STATUS_LABELS = {
   new: "Nouvelle",
@@ -39,6 +53,9 @@ export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
   const [services, setServices] = useState([]);
   const [vehicles, setVehicles] = useState([]);
   const [shop, setShop] = useState(EMPTY_SHOP);
+  const [locationInput, setLocationInput] = useState("");
+  const [locationMessage, setLocationMessage] = useState("");
+  const [photoFile, setPhotoFile] = useState(null);
   const [editingShopId, setEditingShopId] = useState(null);
   const [showShopForm, setShowShopForm] = useState(false);
   const [answers, setAnswers] = useState({});
@@ -95,8 +112,33 @@ export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
     setShop({ ...shop, [field]: selected });
   };
 
+  const updateOpeningHours = (day, value) => {
+    setShop((currentShop) => {
+      const openingHours = { ...currentShop.opening_hours };
+      if (value === "closed") {
+        openingHours[day] = null;
+      } else if (value === "unknown") {
+        delete openingHours[day];
+      } else if (value === "open") {
+        openingHours[day] = {
+          open: openingHours[day]?.open || "",
+          close: openingHours[day]?.close || "",
+        };
+      } else {
+        openingHours[day] = {
+          ...openingHours[day],
+          [value.field]: value.value,
+        };
+      }
+      return { ...currentShop, opening_hours: openingHours };
+    });
+  };
+
   const beginCreateShop = () => {
     setShop(EMPTY_SHOP);
+    setLocationInput("");
+    setLocationMessage("");
+    setPhotoFile(null);
     setEditingShopId(null);
     setShowShopForm(true);
     setError("");
@@ -105,6 +147,13 @@ export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
   };
 
   const beginEditShop = (item) => {
+    setLocationInput(
+      item.latitude != null && item.longitude != null
+        ? `${item.latitude}, ${item.longitude}`
+        : ""
+    );
+    setLocationMessage("");
+    setPhotoFile(null);
     setShop({
       name: item.name,
       business_type: item.business_type,
@@ -112,8 +161,11 @@ export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
       city: item.city,
       district: item.district,
       address: item.address || "",
+      latitude: item.latitude ?? "",
+      longitude: item.longitude ?? "",
       phone: item.phone,
       whatsapp: item.whatsapp || "",
+      opening_hours: item.opening_hours || {},
       mobile_service: item.mobile_service,
       services: item.services,
       vehicle_types: item.vehicle_types,
@@ -132,6 +184,28 @@ export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
     setShowShopForm(false);
     setEditingShopId(null);
     setShop(EMPTY_SHOP);
+    setLocationInput("");
+    setLocationMessage("");
+    setPhotoFile(null);
+    setError("");
+  };
+
+  const updateMapLocation = (event) => {
+    const value = event.target.value;
+    const coordinates = parseMapLocation(value);
+    setLocationInput(value);
+    setShop((currentShop) => ({
+      ...currentShop,
+      latitude: coordinates?.latitude ?? "",
+      longitude: coordinates?.longitude ?? "",
+    }));
+    setLocationMessage(
+      !value.trim()
+        ? ""
+        : coordinates
+          ? `Position repérée : ${coordinates.latitude}, ${coordinates.longitude}`
+          : "Coordonnées non reconnues. Collez la position copiée dans Google Maps ou un lien complet contenant les coordonnées."
+    );
     setError("");
   };
 
@@ -139,19 +213,61 @@ export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
     event.preventDefault();
     setError("");
     setNotice("");
+    if (photoFile && photoFile.size > 5 * 1024 * 1024) {
+      setError("La photo ne peut pas dépasser 5 Mo.");
+      return;
+    }
+    const invalidHours = WEEK_DAYS.some(([day]) => {
+      const hours = shop.opening_hours[day];
+      return (
+        hours &&
+        (!hours.open ||
+          !hours.close ||
+          hours.open >= hours.close)
+      );
+    });
+    if (invalidHours) {
+      setError("Vérifiez les heures d’ouverture et de fermeture de chaque jour.");
+      return;
+    }
+    if (locationInput.trim() && (shop.latitude === "" || shop.longitude === "")) {
+      setError(
+        "La localisation collée n’a pas été reconnue. Copiez les coordonnées Google Maps (ex. 9.337, 2.630) ou un lien complet contenant la position."
+      );
+      return;
+    }
     setSavingShop(true);
     try {
-      await api(editingShopId ? `/shops/${editingShopId}/` : "/shops/", {
+      const savedShop = await api(editingShopId ? `/shops/${editingShopId}/` : "/shops/", {
         method: editingShopId ? "PATCH" : "POST",
-        body: JSON.stringify(shop),
+        body: JSON.stringify({
+          ...shop,
+          latitude: shop.latitude === "" ? null : Number(shop.latitude),
+          longitude: shop.longitude === "" ? null : Number(shop.longitude),
+        }),
       });
+      let photoError = "";
+      if (photoFile) {
+        const formData = new FormData();
+        formData.append("photo", photoFile);
+        try {
+          await api(`/shops/${savedShop.id}/`, {
+            method: "PATCH",
+            body: formData,
+          });
+        } catch (uploadError) {
+          photoError = ` Les autres informations ont été enregistrées, mais la photo n’a pas pu être envoyée : ${uploadError.message}`;
+        }
+      }
       setShop(EMPTY_SHOP);
       setShowShopForm(false);
       setEditingShopId(null);
+      setPhotoFile(null);
       setNotice(
-        editingShopId
+        (editingShopId
           ? "Les informations de votre atelier ont été mises à jour."
-          : "Votre atelier est enregistré. Vous pouvez maintenant gérer sa fiche depuis Mes ateliers."
+          : "Votre atelier est enregistré. Vous pouvez maintenant gérer sa fiche depuis Mes ateliers.") +
+          photoError
       );
       await loadDashboard();
     } catch (requestError) {
@@ -405,6 +521,107 @@ export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
           </div>
           <label htmlFor="shop-address">Adresse (facultative)</label>
           <input id="shop-address" name="address" value={shop.address} onChange={updateShop} />
+          <label htmlFor="shop-photo">Photo principale de l’atelier (facultative)</label>
+          <input
+            id="shop-photo"
+            name="photo"
+            type="file"
+            accept="image/*"
+            onChange={(event) => setPhotoFile(event.target.files?.[0] || null)}
+            aria-describedby="shop-photo-help"
+          />
+          <p id="shop-photo-help" className="mu sm">
+            Image JPG, PNG ou WebP, 5 Mo maximum.
+          </p>
+          {photoFile && (
+            <p className="sm form-success" role="status">
+              Photo sélectionnée : {photoFile.name}
+            </p>
+          )}
+          {!photoFile && editingShopId && shops.find((item) => item.id === editingShopId)?.photo && (
+            <img
+              className="shop-photo-preview"
+              src={shops.find((item) => item.id === editingShopId).photo}
+              alt="Photo actuelle de l’atelier"
+            />
+          )}
+          <fieldset>
+            <legend>Position sur la carte (facultative)</legend>
+            <p className="mu sm">
+              Dans Google Maps, faites un clic droit sur votre emplacement, cliquez sur les coordonnées pour les copier, puis collez-les ici.
+            </p>
+            <label htmlFor="shop-location">Coordonnées ou lien Google Maps</label>
+            <input
+              id="shop-location"
+              name="map_location"
+              type="text"
+              autoComplete="off"
+              placeholder="Ex. 9.337, 2.630 ou collez le lien Google Maps"
+              value={locationInput}
+              onChange={updateMapLocation}
+              aria-describedby="shop-location-help shop-location-status"
+            />
+            <p id="shop-location-help" className="mu sm">
+              Les coordonnées GPS ou un lien complet Google Maps avec la position sont acceptés.
+            </p>
+            {locationMessage && (
+              <p
+                id="shop-location-status"
+                className={`sm ${shop.latitude === "" ? "form-error" : "form-success"}`}
+                role="status"
+              >
+                {locationMessage}
+              </p>
+            )}
+          </fieldset>
+          <fieldset>
+            <legend>Horaires d’ouverture (facultatifs)</legend>
+            <div className="opening-hours-editor">
+              {WEEK_DAYS.map(([day, label]) => {
+                const hours = shop.opening_hours[day];
+                const status = !Object.hasOwn(shop.opening_hours, day)
+                  ? "unknown"
+                  : hours === null
+                    ? "closed"
+                    : "open";
+                return (
+                  <div className="opening-hours-row" key={day}>
+                    <label htmlFor={`hours-${day}-status`}>{label}</label>
+                    <select
+                      id={`hours-${day}-status`}
+                      value={status}
+                      onChange={(event) => updateOpeningHours(day, event.target.value)}
+                    >
+                      <option value="unknown">Non renseigné</option>
+                      <option value="open">Ouvert</option>
+                      <option value="closed">Fermé</option>
+                    </select>
+                    {status === "open" ? (
+                      <div className="opening-time-fields">
+                        <label className="sr-only" htmlFor={`hours-${day}-open`}>Ouverture {label}</label>
+                        <input
+                          id={`hours-${day}-open`}
+                          type="time"
+                          value={hours?.open || ""}
+                          onChange={(event) => updateOpeningHours(day, { field: "open", value: event.target.value })}
+                          aria-label={`Heure d’ouverture ${label}`}
+                        />
+                        <span className="mu">à</span>
+                        <label className="sr-only" htmlFor={`hours-${day}-close`}>Fermeture {label}</label>
+                        <input
+                          id={`hours-${day}-close`}
+                          type="time"
+                          value={hours?.close || ""}
+                          onChange={(event) => updateOpeningHours(day, { field: "close", value: event.target.value })}
+                          aria-label={`Heure de fermeture ${label}`}
+                        />
+                      </div>
+                    ) : <span aria-hidden="true" />}
+                  </div>
+                );
+              })}
+            </div>
+          </fieldset>
           <label htmlFor="shop-description">Description (facultative)</label>
           <textarea id="shop-description" name="description" rows="3" maxLength="3000" value={shop.description} onChange={updateShop} />
           <fieldset>

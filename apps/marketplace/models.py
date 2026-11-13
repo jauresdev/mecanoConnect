@@ -51,6 +51,7 @@ class RepairShop(models.Model):
     )
     phone = models.CharField(max_length=32)
     whatsapp = models.CharField(max_length=32, blank=True)
+    photo = models.ImageField(upload_to="shops/", blank=True)
     services = models.ManyToManyField(Service, related_name="repair_shops", blank=True)
     vehicle_types = models.ManyToManyField(
         VehicleType, related_name="repair_shops", blank=True

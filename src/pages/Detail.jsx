@@ -1,15 +1,150 @@
+import { useEffect, useState } from "react";
+import { api, apiList } from "../api";
 import { Stars } from "../components/Common";
 import { SE, vis, tone } from "../data";
 
-export default function Detail({ r }) {
+const formatReviewDate = (value) =>
+  new Date(value).toLocaleDateString("fr-FR", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+
+const WEEK_DAYS = [
+  ["monday", "Lundi"],
+  ["tuesday", "Mardi"],
+  ["wednesday", "Mercredi"],
+  ["thursday", "Jeudi"],
+  ["friday", "Vendredi"],
+  ["saturday", "Samedi"],
+  ["sunday", "Dimanche"],
+];
+
+const getCurrentAvailability = (openingHours = {}) => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Africa/Porto-Novo",
+    weekday: "long",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  const day = values.weekday.toLowerCase();
+  const hours = openingHours[day];
+  if (!Object.hasOwn(openingHours, day)) {
+    return { label: "Horaires à confirmer", open: null };
+  }
+  if (hours === null) return { label: "Fermé aujourd’hui", open: false };
+  if (!hours?.open || !hours?.close) {
+    return { label: "Horaires à confirmer", open: null };
+  }
+
+  const currentTime = `${values.hour}:${values.minute}`;
+  if (currentTime >= hours.open && currentTime < hours.close) {
+    return { label: `Ouvert · ferme à ${hours.close}`, open: true };
+  }
+  return { label: `Fermé · ${hours.open}–${hours.close}`, open: false };
+};
+
+export default function Detail({ r, session }) {
   const phone = r.phone?.replace(/[^\d+]/g, "");
   const whatsapp = r.whatsapp?.replace(/\D/g, "");
+  const [reviews, setReviews] = useState([]);
+  const [reviewsLoading, setReviewsLoading] = useState(true);
+  const [reviewsError, setReviewsError] = useState("");
+  const [hasCompletedQuote, setHasCompletedQuote] = useState(false);
+  const [reviewsLoaded, setReviewsLoaded] = useState(false);
+  const [rating, setRating] = useState(0);
+  const [comment, setComment] = useState("");
+  const [savingReview, setSavingReview] = useState(false);
+  const [reviewNotice, setReviewNotice] = useState("");
+
+  const isCustomer = session?.user?.role === "customer";
+  const myReview = reviews.find((review) => review.is_mine);
+  const availability = getCurrentAvailability(r.openingHours);
+
+  useEffect(() => {
+    let active = true;
+    setReviews([]);
+    setReviewsLoaded(false);
+    setHasCompletedQuote(false);
+    setReviewsLoading(true);
+    setReviewsError("");
+    setReviewNotice("");
+
+    const shopId = r.apiId ?? r.id;
+    const loadReviews = isCustomer
+      ? apiList("/reviews/")
+      : apiList(`/shops/${shopId}/reviews/`);
+    const requests = [loadReviews];
+    if (isCustomer) {
+      requests.push(apiList("/quotes/"));
+    }
+
+    Promise.all(requests)
+      .then(([reviewList, quotes = []]) => {
+        if (!active) return;
+        setReviews(reviewList.filter((review) => review.shop === shopId));
+        setHasCompletedQuote(
+          quotes.some(
+            (quote) =>
+              quote.shop === shopId && quote.status === "completed"
+          )
+        );
+        setReviewsLoaded(true);
+      })
+      .catch((error) => {
+        if (active) setReviewsError(error.message);
+      })
+      .finally(() => {
+        if (active) setReviewsLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [r.apiId, r.id, isCustomer, session?.access]);
+
+  const submitReview = async (event) => {
+    event.preventDefault();
+    if (!rating) {
+      setReviewsError("Choisissez une note de 1 à 5 étoiles.");
+      return;
+    }
+
+    setSavingReview(true);
+    setReviewsError("");
+    setReviewNotice("");
+    try {
+      const savedReview = await api("/reviews/", {
+        method: "POST",
+        body: JSON.stringify({
+          shop: r.apiId ?? r.id,
+          rating,
+          comment: comment.trim(),
+        }),
+      });
+      setReviews((current) => [savedReview, ...current]);
+      setReviewNotice(
+        "Votre avis a été envoyé. Il sera visible après validation."
+      );
+      setComment("");
+    } catch (error) {
+      setReviewsError(error.message);
+    } finally {
+      setSavingReview(false);
+    }
+  };
 
   return (
     <div>
       <a className="mu back" href="#resultats">← Retour aux résultats</a>
-      <div className={"ph " + tone(r)} style={{ marginTop: 12 }}>
-        <div>{vis(r)}</div><div>🛞</div><div>🔧</div><div>⚙️</div>
+      <div className={`ph ${tone(r)}${r.photo ? " has-photo" : ""}`} style={{ marginTop: 12 }}>
+        {r.photo ? (
+          <img src={r.photo} alt={`Atelier ${r.n}`} />
+        ) : (
+          <><div>{vis(r)}</div><div>🛞</div><div>🔧</div><div>⚙️</div></>
+        )}
       </div>
       <div className="sp">
         <div>
@@ -18,7 +153,10 @@ export default function Detail({ r }) {
               <div className={"av " + tone(r)}>{vis(r)}</div>
               <div>
                 <h1 style={{ fontSize: 26 }}>{r.n}</h1>
-                <div className="mu">{r.t} · {r.q}, {r.city} · {r.h}</div>
+                <div className="mu">{r.t} · {r.q}, {r.city}</div>
+                <span className={`shop-availability${availability.open === true ? " is-open" : availability.open === false ? " is-closed" : ""}`}>
+                  {availability.label}
+                </span>
               </div>
             </div>
             <p>{r.desc}</p>
@@ -33,6 +171,121 @@ export default function Detail({ r }) {
             ))}
             {r.dom ? <span className="tag r">Dépannage à domicile</span> : null}
           </div>
+          <section className="card shop-hours">
+            <h2>Horaires d’ouverture</h2>
+            <ul>
+              {WEEK_DAYS.map(([day, label]) => {
+                const hours = r.openingHours?.[day];
+                const schedule = !Object.hasOwn(r.openingHours || {}, day)
+                  ? "Non renseigné"
+                  : hours === null
+                    ? "Fermé"
+                    : hours?.open && hours?.close
+                      ? `${hours.open} – ${hours.close}`
+                      : "À confirmer";
+                return <li key={day}><span>{label}</span><span>{schedule}</span></li>;
+              })}
+            </ul>
+          </section>
+          <section className="card review-section" aria-labelledby="reviews-title">
+            <div className="sec">
+              <h2 id="reviews-title">Avis des clients</h2>
+              <span className="mu sm">
+                {r.a ? `${r.a} avis` : "Aucun avis publié"}
+              </span>
+            </div>
+
+            {reviewsLoading ? (
+              <p className="mu">Chargement des avis…</p>
+            ) : reviewsError && !reviewsLoaded ? (
+              <p className="form-error" role="alert">
+                Impossible de charger les avis : {reviewsError}
+              </p>
+            ) : (
+              <>
+                {reviews
+                  .filter((review) => review.is_mine || review.comment || review.rating)
+                  .map((review) => (
+                    <article className="review-item" key={review.id}>
+                      <div className="row">
+                        <b>{review.is_mine ? "Votre avis" : review.customer_name || "Client"}</b>
+                        <span className="star" aria-label={`${review.rating} sur 5 étoiles`}>
+                          {"★".repeat(review.rating)}{"☆".repeat(5 - review.rating)}
+                          <span className="review-rating-number">{review.rating}/5</span>
+                        </span>
+                      </div>
+                      {review.comment && <p>{review.comment}</p>}
+                      {review.is_mine && !review.is_approved && (
+                        <p className="mu sm">En attente de validation par un administrateur.</p>
+                      )}
+                      <time className="mu sm" dateTime={review.created_at}>
+                        {formatReviewDate(review.created_at)}
+                      </time>
+                    </article>
+                  ))}
+                {reviews.filter((review) => !review.is_mine).length === 0 && (
+                  <p className="mu">Aucun avis publié pour le moment.</p>
+                )}
+              </>
+            )}
+
+            {isCustomer && !reviewsLoading && (
+              myReview ? (
+                <p className="review-guidance mu">
+                  Vous avez déjà envoyé un avis pour cet atelier.
+                </p>
+              ) : hasCompletedQuote ? (
+                <form className="review-form" onSubmit={submitReview}>
+                  <h3>Laissez votre avis</h3>
+                  <fieldset className="rating-fieldset">
+                    <legend>Votre note</legend>
+                    <div className="rating-picker" role="group" aria-label="Choisir une note sur cinq">
+                      {[1, 2, 3, 4, 5].map((value) => (
+                        <button
+                          key={value}
+                          className="rating-star"
+                          type="button"
+                          aria-label={`${value} étoile${value > 1 ? "s" : ""}`}
+                          aria-pressed={rating === value}
+                          onClick={() => setRating(value)}
+                        >
+                          {value <= rating ? "★" : "☆"}
+                        </button>
+                      ))}
+                      <span className="mu sm">
+                        {rating ? `${rating}/5` : "Sélectionnez une note"}
+                      </span>
+                    </div>
+                  </fieldset>
+                  <label htmlFor="review-comment">Votre commentaire (facultatif)</label>
+                  <textarea
+                    id="review-comment"
+                    rows="4"
+                    maxLength="1500"
+                    placeholder="Partagez votre expérience avec cet atelier…"
+                    value={comment}
+                    onChange={(event) => setComment(event.target.value)}
+                  />
+                  <button className="btn p" type="submit" disabled={savingReview}>
+                    {savingReview ? "Envoi…" : "Envoyer mon avis"}
+                  </button>
+                </form>
+              ) : (
+                <p className="review-guidance mu">
+                  Vous pourrez noter cet atelier après la fin d’une réparation demandée sur MécanoConnect.
+                </p>
+              )
+            )}
+            {!session?.access && !reviewsLoading && (
+              <p className="review-guidance mu">
+                <a href="#connexion">Connectez-vous comme client</a> pour laisser un avis après une réparation terminée.
+              </p>
+            )}
+            {reviewsError && reviewsLoaded && (
+              <p className="form-error" role="alert">{reviewsError}</p>
+            )}
+            {reviewNotice && <p className="form-success" role="status">{reviewNotice}</p>}
+          </section>
         </div>
         <div className="card">
           <h3>Contacter {r.n}</h3>

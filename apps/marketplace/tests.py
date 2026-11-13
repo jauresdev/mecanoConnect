@@ -1,4 +1,9 @@
+from io import BytesIO
+import tempfile
+
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
+from PIL import Image
 from rest_framework.test import APITestCase
 
 from .models import QuoteRequest, RepairShop, Service, VehicleType
@@ -138,6 +143,46 @@ class MarketplaceApiTests(APITestCase):
         self.shop.refresh_from_db()
         self.assertEqual(self.shop.name, "Garage Banikanni rénové")
 
+    def test_shop_owner_can_save_opening_hours_and_upload_a_photo(self):
+        self.client.force_authenticate(self.mechanic)
+        opening_hours = {
+            "monday": {"open": "08:00", "close": "18:00"},
+            "sunday": None,
+        }
+        updated = self.client.patch(
+            f"/api/shops/{self.shop.id}/",
+            {"opening_hours": opening_hours},
+            format="json",
+        )
+        self.assertEqual(updated.status_code, 200)
+        self.assertEqual(updated.data["opening_hours"], opening_hours)
+
+        image_buffer = BytesIO()
+        Image.new("RGB", (2, 2), color="green").save(image_buffer, format="PNG")
+        image = SimpleUploadedFile(
+            "atelier.png", image_buffer.getvalue(), content_type="image/png"
+        )
+        with tempfile.TemporaryDirectory() as media_root:
+            with self.settings(MEDIA_ROOT=media_root):
+                uploaded = self.client.patch(
+                    f"/api/shops/{self.shop.id}/",
+                    {"photo": image},
+                    format="multipart",
+                )
+                self.assertEqual(uploaded.status_code, 200)
+                self.assertTrue(uploaded.data["photo"].endswith(".png"))
+                self.shop.refresh_from_db()
+                self.assertTrue(self.shop.photo.name.startswith("shops/"))
+
+    def test_shop_rejects_invalid_opening_hours(self):
+        self.client.force_authenticate(self.mechanic)
+        response = self.client.patch(
+            f"/api/shops/{self.shop.id}/",
+            {"opening_hours": {"monday": {"open": "18:00", "close": "08:00"}}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+
     def test_public_shop_search_filters_by_vehicle_service_and_district(self):
         response = self.client.get(
             "/api/shops/?vehicle=moto&service=vidange&district=banikanni"
@@ -220,7 +265,12 @@ class MarketplaceApiTests(APITestCase):
             format="json",
         )
         self.assertEqual(review.status_code, 201)
+        self.assertTrue(review.data["is_mine"])
+        self.assertFalse(review.data["is_approved"])
         self.assertFalse(self.shop.reviews.get(customer=self.customer).is_approved)
+
+        own_reviews = self.client.get("/api/reviews/")
+        self.assertTrue(own_reviews.data["results"][0]["is_mine"])
 
         public_reviews = self.client.get(f"/api/shops/{self.shop.id}/reviews/")
         self.assertEqual(public_reviews.data["count"], 0)
