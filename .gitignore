@@ -10,4 +10,4 @@ dist/
 .pytest_cache/
 .coverage
 htmlcov/
-echo "node_modules/" >> .gitignore
+node_modules/
