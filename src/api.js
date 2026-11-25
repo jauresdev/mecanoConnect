@@ -73,6 +73,21 @@ export async function api(path, options = {}, retry = true) {
   return payload;
 }
 
+export async function apiBlob(path, retry = true) {
+  let session = readSession();
+  const headers = new Headers();
+  if (session?.access) headers.set("Authorization", `Bearer ${session.access}`);
+  const response = await fetch(`${API_BASE}${path}`, { headers });
+  if (response.status === 401 && retry && session?.refresh) {
+    session = await refreshAccessToken(session);
+    if (session) return apiBlob(path, false);
+  }
+  if (!response.ok) {
+    throw new Error(`Impossible de charger la pièce jointe (${response.status}).`);
+  }
+  return URL.createObjectURL(await response.blob());
+}
+
 export async function apiList(path) {
   const results = [];
   let next = path;

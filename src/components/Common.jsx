@@ -4,6 +4,7 @@ import "leaflet/dist/leaflet.css";
 import { calculateDistanceKm, distanceBand } from "../location";
 import { loadGoogleMaps } from "../googleMaps";
 import { go } from "../router";
+import { apiBlob } from "../api";
 
 const Ic = ({ children, size = 18, ...p }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...p}>
@@ -17,6 +18,34 @@ export const IcChat = (p) => <Ic {...p}><path d="M21 12a8 8 0 0 1-11.7 7L4 20l1.
 export const IcPlus = (p) => <Ic {...p}><path d="M12 5v14M5 12h14" /></Ic>;
 export const IcArrow = (p) => <Ic {...p}><path d="M5 12h14M13 6l6 6-6 6" /></Ic>;
 export const IcCheck = (p) => <Ic {...p}><path d="M20 6 9 17l-5-5" /></Ic>;
+export const PrivateImage = ({ src, alt, ...props }) => {
+  const [objectUrl, setObjectUrl] = useState("");
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    let loadedUrl = "";
+    setObjectUrl("");
+    setError(false);
+    apiBlob(src)
+      .then((url) => {
+        loadedUrl = url;
+        if (active) setObjectUrl(url);
+        else URL.revokeObjectURL(url);
+      })
+      .catch(() => {
+        if (active) setError(true);
+      });
+    return () => {
+      active = false;
+      if (loadedUrl) URL.revokeObjectURL(loadedUrl);
+    };
+  }, [src]);
+
+  if (error) return <span className="mu">Photo indisponible.</span>;
+  if (!objectUrl) return <span className="mu" role="status">Chargement de la photo…</span>;
+  return <img {...props} src={objectUrl} alt={alt} />;
+};
 const IcWrench = (p) => (
   <Ic {...p} strokeWidth="2.4">
     <path d="M14.7 6.3a4 4 0 0 0 5 5l-9.4 9.4a2.1 2.1 0 0 1-3-3l9.4-9.4z" />
