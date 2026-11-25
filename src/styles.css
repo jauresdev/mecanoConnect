@@ -249,6 +249,9 @@ h2{font-size:26px;font-weight:800;font-style:italic;letter-spacing:-.02em}
 .shop-badge{display:inline-flex;align-items:center;border:1px solid var(--ln);border-radius:99px;padding:4px 10px;color:var(--mu);font-size:12px;font-weight:700}
 .shop-badge.verified{color:#4be3a0;border-color:rgba(75,227,160,.45)}
 .shop-badge.status-new{color:#ffe784;border-color:rgba(252,209,22,.45)}
+.shop-badge.status-discussion,.shop-badge.status-quote_sent{color:#ffe784;border-color:rgba(252,209,22,.45)}
+.shop-badge.status-quote_accepted,.shop-badge.status-appointment_confirmed{color:#9edbff;border-color:rgba(95,180,255,.45)}
+.shop-badge.status-quote_declined,.shop-badge.status-declined,.shop-badge.status-cancelled{color:#ff9eaa;border-color:rgba(232,17,45,.45)}
 .shop-badge.status-accepted{color:#9edbff;border-color:rgba(95,180,255,.45)}
 .shop-badge.status-in_progress{color:#d8b8ff;border-color:rgba(175,125,255,.5)}
 .shop-badge.status-completed{color:#4be3a0;border-color:rgba(75,227,160,.45)}
@@ -259,9 +262,15 @@ h2{font-size:26px;font-weight:800;font-style:italic;letter-spacing:-.02em}
 .quote-card:has(.status-accepted){border-left-color:#5fb4ff}
 .quote-card:has(.status-in_progress){border-left-color:#af7dff}
 .quote-card:has(.status-completed){border-left-color:var(--gr)}
+.quote-card:has(.status-quote_accepted),.quote-card:has(.status-appointment_confirmed){border-left-color:#5fb4ff}
+.quote-card:has(.status-declined),.quote-card:has(.status-quote_declined){border-left-color:var(--rd)}
 .quote-status-actions{gap:8px}
 .mechanic-reply{padding:14px 16px;border:1px solid rgba(252,209,22,.35);border-radius:14px;background:rgba(252,209,22,.08)}
 .mechanic-reply p{margin-top:5px}
+.quote-offer{margin-top:12px;padding-top:12px;border-top:1px solid var(--ln)}
+.quote-offer:first-of-type{border-top:0}
+.quote-offer h4{margin:0 0 8px}
+.quote-reply details,.quote-card details{margin-top:8px}
 .customer-quote-actions{margin-top:4px}
 .text-button{justify-self:start;padding:4px 0;border:0;background:none;color:var(--mu);font:inherit;text-decoration:underline;cursor:pointer}
 .text-button:hover{color:var(--tx)}

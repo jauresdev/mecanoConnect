@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, apiList, clearSession } from "../api";
+import { PrivateImage } from "../components/Common";
 import { parseMapLocation } from "../location";
 import { go } from "../router";
 
@@ -31,13 +32,29 @@ const WEEK_DAYS = [
 ];
 
 const STATUS_LABELS = {
-  new: "Nouvelle",
+  new: "En attente de réponse",
   answered: "Répondue",
+  discussion: "En discussion",
+  quote_sent: "Devis envoyé",
+  quote_accepted: "Devis accepté",
+  quote_declined: "Devis refusé",
+  appointment_confirmed: "Rendez-vous confirmé",
   accepted: "Acceptée",
   in_progress: "En cours",
   declined: "Refusée",
   completed: "Terminée",
   cancelled: "Annulée",
+};
+
+const CATEGORY_LABELS = {
+  engine: "Panne moteur",
+  electrical: "Problème électrique",
+  brakes: "Freinage",
+  battery: "Batterie",
+  tires: "Pneumatique",
+  maintenance: "Entretien",
+  accident: "Accident",
+  other: "Autre problème",
 };
 
 const setWhenChanged = (setter, nextValue) =>
@@ -50,6 +67,8 @@ const setWhenChanged = (setter, nextValue) =>
 export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
   const [shops, setShops] = useState([]);
   const [quotes, setQuotes] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [appointments, setAppointments] = useState([]);
   const [services, setServices] = useState([]);
   const [vehicles, setVehicles] = useState([]);
   const [shop, setShop] = useState(EMPTY_SHOP);
@@ -59,6 +78,10 @@ export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
   const [editingShopId, setEditingShopId] = useState(null);
   const [showShopForm, setShowShopForm] = useState(false);
   const [answers, setAnswers] = useState({});
+  const [messages, setMessages] = useState({});
+  const [offerForms, setOfferForms] = useState({});
+  const [appointmentInputs, setAppointmentInputs] = useState({});
+  const [declineReasons, setDeclineReasons] = useState({});
   const [quoteFilter, setQuoteFilter] = useState("all");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -70,14 +93,18 @@ export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
     if (!silent) setBusy(true);
     setError("");
     try {
-      const [shopList, quoteList, serviceList, vehicleList] = await Promise.all([
+      const [shopList, quoteList, serviceList, vehicleList, notificationList, appointmentList] = await Promise.all([
         apiList("/shops/"),
         apiList("/quotes/"),
         apiList("/services/"),
         apiList("/vehicle-types/"),
+        apiList("/notifications/"),
+        apiList("/appointments/"),
       ]);
       setWhenChanged(setShops, shopList.filter((item) => item.owner === user.id));
       setWhenChanged(setQuotes, quoteList);
+      setWhenChanged(setNotifications, notificationList);
+      setWhenChanged(setAppointments, appointmentList);
       setWhenChanged(setServices, serviceList);
       setWhenChanged(setVehicles, vehicleList);
     } catch (requestError) {
@@ -296,6 +323,163 @@ export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
     }
   };
 
+  const acceptRequest = async (quoteId) => {
+    setSavingQuoteId(quoteId);
+    setError("");
+    try {
+      await api(`/quotes/${quoteId}/accept-request/`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      setNotice("Vous avez accepté d’étudier cette demande.");
+      await loadDashboard();
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setSavingQuoteId(null);
+    }
+  };
+
+  const declineRequest = async (quoteId) => {
+    setSavingQuoteId(quoteId);
+    setError("");
+    try {
+      await api(`/quotes/${quoteId}/decline-request/`, {
+        method: "POST",
+        body: JSON.stringify({ reason: declineReasons[quoteId] || "" }),
+      });
+      setNotice("La demande a été refusée.");
+      await loadDashboard();
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setSavingQuoteId(null);
+    }
+  };
+
+  const sendMessage = async (quoteId) => {
+    const message = messages[quoteId]?.trim();
+    if (!message) return;
+    setSavingQuoteId(quoteId);
+    setError("");
+    try {
+      await api(`/quotes/${quoteId}/message/`, {
+        method: "POST",
+        body: JSON.stringify({ message }),
+      });
+      setMessages((current) => ({ ...current, [quoteId]: "" }));
+      setNotice("Votre message a été envoyé au client.");
+      await loadDashboard();
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setSavingQuoteId(null);
+    }
+  };
+
+  const updateOffer = (quoteId, field, value) => {
+    setOfferForms((current) => ({
+      ...current,
+      [quoteId]: {
+        description: "",
+        labor_cost: "",
+        travel_cost: "0",
+        estimated_duration_minutes: "60",
+        valid_days: "7",
+        conditions: "",
+        parts: [{ name: "", quantity: "1", unit_price: "" }],
+        ...current[quoteId],
+        [field]: value,
+      },
+    }));
+  };
+
+  const updateOfferPart = (quoteId, index, field, value) => {
+    const current = offerForms[quoteId] || {};
+    const parts = current.parts || [{ name: "", quantity: "1", unit_price: "" }];
+    updateOffer(quoteId, "parts", parts.map((part, partIndex) =>
+      partIndex === index ? { ...part, [field]: value } : part
+    ));
+  };
+
+  const createOffer = async (quoteId) => {
+    const form = offerForms[quoteId] || {};
+    const validUntil = new Date();
+    validUntil.setDate(validUntil.getDate() + Number(form.valid_days || 7));
+    const parts = (form.parts || []).filter((part) => part.name.trim()).map((part) => ({
+      name: part.name.trim(),
+      quantity: Number(part.quantity),
+      unit_price: Number(part.unit_price),
+    }));
+    setSavingQuoteId(quoteId);
+    setError("");
+    try {
+      await api(`/quotes/${quoteId}/offers/`, {
+        method: "POST",
+        body: JSON.stringify({
+          description: form.description?.trim() || "",
+          labor_cost: Number(form.labor_cost),
+          travel_cost: Number(form.travel_cost || 0),
+          estimated_duration_minutes: Number(form.estimated_duration_minutes),
+          valid_until: validUntil.toISOString().slice(0, 10),
+          conditions: form.conditions?.trim() || "",
+          parts,
+        }),
+      });
+      setNotice("Le devis estimatif a été envoyé au client.");
+      await loadDashboard();
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setSavingQuoteId(null);
+    }
+  };
+
+  const proposeAppointment = async (quoteId) => {
+    const scheduledAt = appointmentInputs[quoteId];
+    if (!scheduledAt) return;
+    setSavingQuoteId(quoteId);
+    setError("");
+    try {
+      await api(`/quotes/${quoteId}/appointments/`, {
+        method: "POST",
+        body: JSON.stringify({ scheduled_at: new Date(scheduledAt).toISOString() }),
+      });
+      setAppointmentInputs((current) => ({ ...current, [quoteId]: "" }));
+      setNotice("Votre proposition de rendez-vous a été envoyée.");
+      await loadDashboard();
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setSavingQuoteId(null);
+    }
+  };
+
+  const updateAppointment = async (appointmentId) => {
+    try {
+      await api(`/appointments/${appointmentId}/cancel/`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      setNotice("Le créneau a été annulé. Vous pouvez proposer une nouvelle date.");
+      await loadDashboard();
+    } catch (requestError) {
+      setError(requestError.message);
+    }
+  };
+
+  const markNotificationRead = async (notificationId) => {
+    try {
+      await api(`/notifications/${notificationId}/read/`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      await loadDashboard(true);
+    } catch (requestError) {
+      setError(requestError.message);
+    }
+  };
+
   const completeQuote = async (quoteId) => {
     setError("");
     setNotice("");
@@ -337,7 +521,7 @@ export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
       ? quotes
       : quotes.filter((quote) => quote.status === quoteFilter);
   const newQuoteCount = quotes.filter((quote) => quote.status === "new").length;
-  const acceptedQuoteCount = quotes.filter((quote) => ["accepted", "in_progress"].includes(quote.status)).length;
+  const acceptedQuoteCount = quotes.filter((quote) => ["accepted", "quote_accepted", "appointment_confirmed", "in_progress"].includes(quote.status)).length;
   const completedQuoteCount = quotes.filter((quote) => quote.status === "completed").length;
 
   const logout = () => {
@@ -362,6 +546,55 @@ export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
 
       {error && <p className="form-error" role="alert">{error}</p>}
       {notice && <p className="form-success" role="status">{notice}</p>}
+
+      <section className="dashboard-section">
+        <div className="sec"><h2>Notifications</h2></div>
+        {notifications.length === 0 ? (
+          <p className="card mu">Aucune notification.</p>
+        ) : (
+          <div className="dashboard-list">
+            {notifications.slice(0, 8).map((notification) => (
+              <article className="card" key={notification.id}>
+                <div className="row">
+                  <b>{notification.event.replaceAll("_", " ")}</b>
+                  {!notification.is_read && (
+                    <button className="text-button" type="button" onClick={() => markNotificationRead(notification.id)}>
+                      Marquer comme lue
+                    </button>
+                  )}
+                </div>
+                <p>{notification.message}</p>
+                <p className="mu">{new Date(notification.created_at).toLocaleString("fr-FR")}</p>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="dashboard-section">
+        <div className="sec"><h2>Calendrier des rendez-vous</h2></div>
+        {appointments.length === 0 ? (
+          <p className="card mu">Aucun rendez-vous proposé ou confirmé.</p>
+        ) : (
+          <div className="dashboard-list">
+            {appointments.map((appointment) => (
+              <article className="card" key={appointment.id}>
+                <div className="row">
+                  <b>{appointment.shop_name}</b>
+                  <span className={`shop-badge status-${appointment.status}`}>{appointment.status}</span>
+                </div>
+                <p>{new Date(appointment.scheduled_at).toLocaleString("fr-FR")} · {appointment.duration_minutes} min</p>
+                {appointment.note && <p>{appointment.note}</p>}
+                {["proposed", "confirmed"].includes(appointment.status) && (
+                  <button className="btn" type="button" onClick={() => updateAppointment(appointment.id)}>
+                    Annuler / proposer un autre créneau
+                  </button>
+                )}
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
 
       <section className="dashboard-stats" aria-label="Résumé de l’activité">
         <article className="card stat-card">
@@ -424,8 +657,12 @@ export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
           <div className="quote-filters" role="tablist" aria-label="Filtrer les demandes">
             {[
               ["all", "Toutes"],
-              ["new", "Nouvelles"],
+              ["new", "À traiter"],
+              ["discussion", "En discussion"],
               ["answered", "Répondues"],
+              ["quote_sent", "Devis envoyés"],
+              ["quote_accepted", "Devis acceptés"],
+              ["appointment_confirmed", "Rendez-vous"],
               ["accepted", "Acceptées"],
               ["in_progress", "En cours"],
               ["completed", "Terminées"],
@@ -457,15 +694,171 @@ export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
                   <span className={`shop-badge status-${quote.status}`}>{STATUS_LABELS[quote.status] || quote.status}</span>
                 </div>
                 <p className="mu">Client : {quote.customer_name} · {quote.urgency === "immediate" ? "🚨 Urgent" : "Planifiée"} · {new Date(quote.created_at).toLocaleDateString("fr-FR")}</p>
-                <p><b>{quote.vehicle_model}</b> · {quote.problem}</p>
+                <p><b>{quote.vehicle_model}</b> · {CATEGORY_LABELS[quote.category] || quote.category} · {quote.problem}</p>
+                {quote.location && <p>Localisation : {quote.location}</p>}
+                <p className="mu">
+                  {quote.service_mode === "on_site" ? "Intervention sur place" : "Intervention en atelier"}
+                  {quote.availability ? ` · Disponibilités du client : ${quote.availability}` : ""}
+                </p>
+                {quote.attachments?.length > 0 && (
+                  <div className="row">
+                    {quote.attachments.map((attachment) => (
+                      <PrivateImage
+                        key={attachment.id}
+                        className="shop-photo-preview"
+                        src={attachment.image}
+                        alt="Photo jointe par le client"
+                      />
+                    ))}
+                  </div>
+                )}
                 {quote.mechanic_response && <p className="form-success">Votre réponse : {quote.mechanic_response}</p>}
                 {quote.status === "new" && (
                   <div className="quote-reply">
-                    <label htmlFor={`answer-${quote.id}`}>Votre réponse au client</label>
-                    <textarea id={`answer-${quote.id}`} rows="3" maxLength="3000" value={answers[quote.id] || ""} onChange={(event) => setAnswers({ ...answers, [quote.id]: event.target.value })} placeholder="Décrivez votre diagnostic ou proposez un rendez-vous." />
-                    <button className="btn p" type="button" disabled={savingQuoteId === quote.id || !answers[quote.id]?.trim()} onClick={() => replyToQuote(quote.id)}>{savingQuoteId === quote.id ? "Envoi…" : "Envoyer ma réponse"}</button>
+                    <div className="row">
+                      <button className="btn p" type="button" disabled={savingQuoteId === quote.id} onClick={() => acceptRequest(quote.id)}>
+                        Accepter la demande
+                      </button>
+                      <button className="btn" type="button" disabled={savingQuoteId === quote.id} onClick={() => declineRequest(quote.id)}>
+                        Refuser
+                      </button>
+                    </div>
+                    <label htmlFor={`decline-${quote.id}`}>Motif facultatif en cas de refus</label>
+                    <input id={`decline-${quote.id}`} maxLength="1000" value={declineReasons[quote.id] || ""} onChange={(event) => setDeclineReasons({ ...declineReasons, [quote.id]: event.target.value })} />
+                    <label htmlFor={`answer-${quote.id}`}>Réponse rapide (parcours historique)</label>
+                    <textarea id={`answer-${quote.id}`} rows="2" maxLength="3000" value={answers[quote.id] || ""} onChange={(event) => setAnswers({ ...answers, [quote.id]: event.target.value })} placeholder="Répondez au client." />
+                    <button className="btn" type="button" disabled={savingQuoteId === quote.id || !answers[quote.id]?.trim()} onClick={() => replyToQuote(quote.id)}>
+                      Envoyer une réponse
+                    </button>
                   </div>
                 )}
+                {quote.refusal_reason && <p className="mu">Motif de refus saisi : {quote.refusal_reason}</p>}
+                {quote.messages?.length > 0 && (
+                  <details>
+                    <summary>Échanges avec le client ({quote.messages.length})</summary>
+                    {quote.messages.map((message) => (
+                      <p key={message.id}>
+                        <b>{message.author_name}</b> · {new Date(message.created_at).toLocaleString("fr-FR")}
+                        <br />{message.message}
+                      </p>
+                    ))}
+                  </details>
+                )}
+                {["discussion", "answered", "quote_sent"].includes(quote.status) && (
+                  <div className="quote-reply">
+                    <label htmlFor={`message-${quote.id}`}>Question ou réponse au client</label>
+                    <textarea
+                      id={`message-${quote.id}`}
+                      rows="2"
+                      maxLength="3000"
+                      value={messages[quote.id] || ""}
+                      onChange={(event) => setMessages({ ...messages, [quote.id]: event.target.value })}
+                    />
+                    <button className="btn" type="button" disabled={savingQuoteId === quote.id || !messages[quote.id]?.trim()} onClick={() => sendMessage(quote.id)}>
+                      Envoyer le message
+                    </button>
+                  </div>
+                )}
+                {quote.offers?.length > 0 && (
+                  <div className="mechanic-reply">
+                    <b>Historique des devis estimatifs</b>
+                    {quote.offers.map((offer) => (
+                      <div className="quote-offer" key={offer.id}>
+                        <h4>Version {offer.version} · {offer.is_supplemental ? "Devis complémentaire" : "Devis initial"} · {offer.status}</h4>
+                        <p>{offer.description}</p>
+                        {offer.parts.map((part) => <p key={part.id}>{part.quantity} × {part.name} — {Number(part.unit_price).toLocaleString("fr-FR")} FCFA</p>)}
+                        <p>Main-d’œuvre : {Number(offer.labor_cost).toLocaleString("fr-FR")} FCFA</p>
+                        <p>Déplacement : {Number(offer.travel_cost).toLocaleString("fr-FR")} FCFA</p>
+                        <p><b>Total estimatif : {Number(offer.total).toLocaleString("fr-FR")} FCFA (XOF)</b></p>
+                        <p>Durée : {offer.estimated_duration_minutes} min · Valide jusqu’au {new Date(`${offer.valid_until}T00:00:00`).toLocaleDateString("fr-FR")}</p>
+                        {offer.conditions && <p>Conditions : {offer.conditions}</p>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {["discussion", "answered", "accepted", "quote_accepted", "appointment_confirmed", "in_progress"].includes(quote.status) && (
+                  <details className="quote-reply">
+                    <summary>
+                      {["accepted", "quote_accepted", "appointment_confirmed", "in_progress"].includes(quote.status)
+                        ? "Envoyer un devis complémentaire (l’intervention sera suspendue jusqu’à l’accord du client)"
+                        : "Créer ou modifier un devis (une nouvelle version sera historisée)"}
+                    </summary>
+                    {(() => {
+                      const form = offerForms[quote.id] || {
+                        description: "",
+                        labor_cost: "",
+                        travel_cost: "0",
+                        estimated_duration_minutes: "60",
+                        valid_days: "7",
+                        conditions: "",
+                        parts: [{ name: "", quantity: "1", unit_price: "" }],
+                      };
+                      return (
+                        <>
+                          <label htmlFor={`offer-description-${quote.id}`}>Description de l’intervention</label>
+                          <textarea id={`offer-description-${quote.id}`} rows="3" value={form.description} onChange={(event) => updateOffer(quote.id, "description", event.target.value)} />
+                          <div className="form-grid">
+                            <div>
+                              <label htmlFor={`labor-${quote.id}`}>Main-d’œuvre (FCFA)</label>
+                              <input id={`labor-${quote.id}`} type="number" min="0" step="1" value={form.labor_cost} onChange={(event) => updateOffer(quote.id, "labor_cost", event.target.value)} />
+                            </div>
+                            <div>
+                              <label htmlFor={`travel-${quote.id}`}>Déplacement (FCFA)</label>
+                              <input id={`travel-${quote.id}`} type="number" min="0" step="1" value={form.travel_cost} onChange={(event) => updateOffer(quote.id, "travel_cost", event.target.value)} />
+                            </div>
+                            <div>
+                              <label htmlFor={`duration-${quote.id}`}>Durée estimée (minutes)</label>
+                              <input id={`duration-${quote.id}`} type="number" min="1" value={form.estimated_duration_minutes} onChange={(event) => updateOffer(quote.id, "estimated_duration_minutes", event.target.value)} />
+                            </div>
+                            <div>
+                              <label htmlFor={`valid-${quote.id}`}>Validité (jours)</label>
+                              <input id={`valid-${quote.id}`} type="number" min="1" max="365" value={form.valid_days} onChange={(event) => updateOffer(quote.id, "valid_days", event.target.value)} />
+                            </div>
+                          </div>
+                          <label>Pièces et fournitures</label>
+                          {form.parts.map((part, index) => (
+                            <div className="form-grid" key={index}>
+                              <input aria-label="Nom de la pièce" value={part.name} placeholder="Nom de la pièce" onChange={(event) => updateOfferPart(quote.id, index, "name", event.target.value)} />
+                              <input aria-label="Quantité" type="number" min="1" value={part.quantity} onChange={(event) => updateOfferPart(quote.id, index, "quantity", event.target.value)} />
+                              <input aria-label="Prix unitaire FCFA" type="number" min="0" step="1" value={part.unit_price} placeholder="Prix unitaire FCFA" onChange={(event) => updateOfferPart(quote.id, index, "unit_price", event.target.value)} />
+                            </div>
+                          ))}
+                          <button className="btn" type="button" onClick={() => updateOffer(quote.id, "parts", [...form.parts, { name: "", quantity: "1", unit_price: "" }])}>
+                            Ajouter une pièce
+                          </button>
+                          <label htmlFor={`conditions-${quote.id}`}>Conditions éventuelles</label>
+                          <textarea id={`conditions-${quote.id}`} rows="2" value={form.conditions} onChange={(event) => updateOffer(quote.id, "conditions", event.target.value)} />
+                          <p className="mu">Le montant total est calculé par le serveur. Il s’agit d’une estimation, pas d’une facture. Aucun supplément ne sera engagé sans accord du client.</p>
+                          <button className="btn p" type="button" disabled={savingQuoteId === quote.id || !form.description.trim() || form.labor_cost === ""} onClick={() => createOffer(quote.id)}>
+                            {["accepted", "quote_accepted", "appointment_confirmed", "in_progress"].includes(quote.status)
+                              ? "Envoyer le devis complémentaire"
+                              : "Envoyer le devis estimatif"}
+                          </button>
+                        </>
+                      );
+                    })()}
+                  </details>
+                )}
+                {quote.status === "quote_accepted" && (
+                  <div className="quote-reply">
+                    <label htmlFor={`appointment-${quote.id}`}>Proposer une date et une heure</label>
+                    <input
+                      id={`appointment-${quote.id}`}
+                      type="datetime-local"
+                      min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}
+                      value={appointmentInputs[quote.id] || ""}
+                      onChange={(event) => setAppointmentInputs({ ...appointmentInputs, [quote.id]: event.target.value })}
+                    />
+                    <button className="btn p" type="button" disabled={savingQuoteId === quote.id || !appointmentInputs[quote.id]} onClick={() => proposeAppointment(quote.id)}>
+                      Proposer le rendez-vous
+                    </button>
+                  </div>
+                )}
+                {quote.appointments?.map((appointment) => (
+                  <p className="mechanic-reply" key={appointment.id}>
+                    Rendez-vous {appointment.status} : {new Date(appointment.scheduled_at).toLocaleString("fr-FR")} · {appointment.duration_minutes} min
+                  </p>
+                ))}
                 {quote.status === "accepted" && (
                   <div className="row quote-status-actions">
                     <button className="btn p" type="button" disabled={savingQuoteId === quote.id} onClick={() => startQuote(quote.id)}>
@@ -475,6 +868,11 @@ export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
                       Marquer comme terminée
                     </button>
                   </div>
+                )}
+                {quote.status === "appointment_confirmed" && (
+                  <button className="btn p" type="button" disabled={savingQuoteId === quote.id} onClick={() => startQuote(quote.id)}>
+                    Commencer l’intervention
+                  </button>
                 )}
                 {quote.status === "in_progress" && (
                   <button className="btn p" type="button" disabled={savingQuoteId === quote.id} onClick={() => completeQuote(quote.id)}>

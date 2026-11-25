@@ -23,5 +23,6 @@
         "**/.vibe": true,
         "**/.windsurf": true,
         "**/.zencoder": true
-    }
+    },
+    "python.terminal.useEnvFile": true
 }

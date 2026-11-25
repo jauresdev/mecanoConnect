@@ -1,0 +1,22 @@
+# Règles du projet (Application Web React + Python)
+
+## 1. Langue et Communication
+- Réponds et explique toujours tes choix en français.
+- Avant d'écrire du code en mode Act, résume brièvement les fichiers que tu vas créer ou modifier.
+
+## 2. Préservation du contexte et des performances
+- Ne lis JAMAIS le contenu des dossiers `node_modules/`, `venv/`, `.venv/`, `__pycache__/`, `dist/`, `build/` ou `.git/`.
+- Ne modifie jamais les fichiers `.env` directement : indique-moi plutôt quelles variables d'environnement ajouter dans `.env.example`.
+
+## 3. Standards Frontend (React)
+- Privilégie des composants fonctionnels modulaires et réutilisables avec des hooks propres.
+- Centralise les appels API dans un dossier ou service dédié plutôt que de disperser des `fetch` ou `axios` directement dans les composants UI.
+- Gère systématiquement les états de chargement (loading) et d'erreur pour chaque requête vers le backend.
+
+## 4. Standards Backend (Python)
+- Respecte la convention PEP 8, utilise le typage statique (`type hints`) et écris des docstrings claires pour les fonctions et routes API.
+- Valide systématiquement les données entrantes (schémas Pydantic ou équivalent) et renvoie des codes de statut HTTP appropriés.
+- Avant d'installer un nouveau paquet Python (`pip install`), vérifie s'il est déjà présent dans `requirements.txt` ou `pyproject.toml`.
+
+## 5. Cohérence Full-Stack
+- Lorsque tu modifies un endpoint Python (URL, paramètres ou format JSON de réponse), vérifie et mets à jour immédiatement le service React correspondant pour éviter toute désynchronisation.
