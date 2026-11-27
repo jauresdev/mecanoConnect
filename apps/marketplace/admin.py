@@ -1,5 +1,7 @@
+from django import forms
 from django.contrib import admin
 from django.db import transaction
+from django.utils import timezone
 
 from .models import (
     Appointment,
@@ -21,11 +23,79 @@ from .workflows import record_quote_event
 
 @admin.register(RepairShop)
 class RepairShopAdmin(admin.ModelAdmin):
-    list_display = ("name", "owner", "city", "district", "is_verified", "is_active")
-    list_filter = ("business_type", "city", "is_verified", "is_active")
+    class Form(forms.ModelForm):
+        class Meta:
+            model = RepairShop
+            fields = "__all__"
+
+        def clean(self):
+            cleaned_data = super().clean()
+            if (
+                cleaned_data.get("publication_status")
+                == RepairShop.PublicationStatus.REJECTED
+                and not (cleaned_data.get("publication_review_note") or "").strip()
+            ):
+                self.add_error(
+                    "publication_review_note",
+                    "Indiquez les modifications attendues du mécanicien.",
+                )
+            return cleaned_data
+
+    form = Form
+    list_display = (
+        "name",
+        "owner",
+        "city",
+        "district",
+        "publication_status",
+        "is_verified",
+        "is_active",
+    )
+    list_filter = (
+        "business_type",
+        "publication_status",
+        "city",
+        "is_verified",
+        "is_active",
+    )
     search_fields = ("name", "owner__email", "district", "city")
     filter_horizontal = ("services", "vehicle_types")
-    readonly_fields = ("is_verified", "created_at", "updated_at")
+    readonly_fields = (
+        "is_verified",
+        "publication_reviewed_at",
+        "publication_reviewed_by",
+        "created_at",
+        "updated_at",
+    )
+
+    def save_model(self, request, obj, form, change):
+        previous_status = None
+        if change:
+            previous_status = RepairShop.objects.get(pk=obj.pk).publication_status
+        if change and previous_status != obj.publication_status:
+            obj.publication_reviewed_at = timezone.now()
+            obj.publication_reviewed_by = request.user
+        super().save_model(request, obj, form, change)
+        if change and previous_status != obj.publication_status:
+            notification = {
+                RepairShop.PublicationStatus.APPROVED: (
+                    "repair_shop_approved",
+                    f"Votre atelier « {obj.name} » a été approuvé et publié.",
+                ),
+                RepairShop.PublicationStatus.REJECTED: (
+                    "repair_shop_changes_requested",
+                    (
+                        f"Des modifications sont demandées pour votre atelier "
+                        f"« {obj.name} ». Motif : {obj.publication_review_note}"
+                    ),
+                ),
+            }.get(obj.publication_status)
+            if notification:
+                Notification.objects.create(
+                    recipient=obj.owner,
+                    event=notification[0],
+                    message=notification[1],
+                )
 
 
 @admin.register(QuoteRequest)

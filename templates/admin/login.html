@@ -1,0 +1,81 @@
+{% extends "admin/base_site.html" %}
+
+{% block title %}Connexion | Admin | MécanoConnect{% endblock %}
+{% block bodyclass %}{{ block.super }} login mc-admin-login{% endblock %}
+{% block usertools %}{% endblock %}
+{% block nav-global %}{% endblock %}
+{% block nav-sidebar %}{% endblock %}
+{% block content_title %}{% endblock %}
+{% block nav-breadcrumbs %}{% endblock %}
+
+{% block content %}
+  <div class="mc-login-layout">
+    <section class="mc-login-intro">
+      <a class="mc-public-brand" href="/">
+        <span class="mc-public-mark" aria-hidden="true">MC</span>
+        <span>Mécano<span>Connect</span></span>
+      </a>
+
+      <div class="mc-login-intro-copy">
+        <p class="mc-eyebrow">ESPACE D’ADMINISTRATION</p>
+        <h1>Pilotez votre plateforme en toute simplicité.</h1>
+        <p class="mc-login-lead">
+          Retrouvez au même endroit les professionnels, les ateliers et les
+          demandes qui nécessitent votre attention.
+        </p>
+      </div>
+
+      <div class="mc-login-highlights">
+        <div><span>01</span><p>Vérifier les professionnels et leurs justificatifs</p></div>
+        <div><span>02</span><p>Examiner et publier les ateliers</p></div>
+        <div><span>03</span><p>Modérer les avis et les signalements</p></div>
+      </div>
+      <p class="mc-login-privacy">Accès réservé au personnel autorisé.</p>
+    </section>
+
+    <section class="mc-login-card" aria-labelledby="mc-login-title">
+      <div class="mc-login-card-mark" aria-hidden="true">↗</div>
+      <p class="mc-eyebrow">BON RETOUR</p>
+      <h2 id="mc-login-title">Connexion à l’admin</h2>
+      <p class="mc-login-card-copy">Saisis tes identifiants pour continuer.</p>
+
+      {% if form.errors %}
+        <div class="mc-login-error" role="alert">
+          Identifiant ou mot de passe incorrect. Vérifie tes informations.
+        </div>
+      {% endif %}
+
+      {% if user.is_authenticated %}
+        <div class="mc-login-error" role="alert">
+          Ce compte n’est pas autorisé à accéder à l’administration.
+        </div>
+      {% endif %}
+
+      <form action="{{ app_path }}" method="post" id="login-form">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ next }}">
+
+        <div class="mc-field">
+          <label for="{{ form.username.id_for_label }}">Nom d’utilisateur</label>
+          {{ form.username }}
+          {{ form.username.errors }}
+        </div>
+        <div class="mc-field">
+          <label for="{{ form.password.id_for_label }}">Mot de passe</label>
+          {{ form.password }}
+          {{ form.password.errors }}
+        </div>
+
+        <button class="mc-login-submit" type="submit">
+          <span>Se connecter</span><span aria-hidden="true">→</span>
+        </button>
+      </form>
+
+      <div class="mc-login-security">
+        <span aria-hidden="true">●</span>
+        <p>Connexion sécurisée · Ne partage pas tes identifiants.</p>
+      </div>
+      <a class="mc-back-to-site" href="/">← Retour à MécanoConnect</a>
+    </section>
+  </div>
+{% endblock %}

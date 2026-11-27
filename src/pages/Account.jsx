@@ -3,7 +3,28 @@ import { api, saveSession } from "../api";
 import { go } from "../router";
 
 export default function Account({ mode, onLogin }) {
-  const registering = mode === "inscription" || mode === "inscription-client";
+  const choosingMechanicSpace = mode === "inscription";
+  const mechanicSpace =
+    mode === "inscription-moto"
+      ? "moto"
+      : mode === "inscription-auto"
+        ? "auto"
+        : mode === "inscription-auto-moto"
+          ? "both"
+        : "";
+  const mechanicSpaceLabel =
+    mechanicSpace === "moto"
+      ? "moto"
+      : mechanicSpace === "auto"
+        ? "automobile"
+        : "automobile et moto";
+  const registering =
+    [
+      "inscription-moto",
+      "inscription-auto",
+      "inscription-auto-moto",
+      "inscription-client",
+    ].includes(mode);
   const role = mode === "inscription-client" ? "customer" : "mechanic";
   const [values, setValues] = useState({
     username: "",
@@ -31,6 +52,7 @@ export default function Account({ mode, onLogin }) {
           body: JSON.stringify({
             ...values,
             role,
+            ...(role === "mechanic" ? { vehicle_scope: mechanicSpace } : {}),
           }),
         });
       }
@@ -60,11 +82,35 @@ export default function Account({ mode, onLogin }) {
   return (
     <section className="account card">
       <a className="mu back" href="#accueil">← Retour à l’accueil</a>
-      <h1>{registering ? role === "mechanic" ? "Créer mon espace mécanicien" : "Créer un compte client" : "Se connecter"}</h1>
+      <h1>
+        {choosingMechanicSpace
+          ? "Choisir mon espace mécanicien"
+          : registering
+            ? role === "mechanic"
+              ? `Créer mon espace mécanicien ${mechanicSpaceLabel}`
+              : "Créer un compte client"
+            : "Se connecter"}
+      </h1>
+      {choosingMechanicSpace ? (
+        <>
+          <p className="mu">
+            Choisissez votre activité pour créer un espace et un profil adaptés à votre atelier.
+          </p>
+          <div className="shop-card-actions">
+            <a className="btn p" href="#inscription-moto">Mécanicien moto</a>
+            <a className="btn p" href="#inscription-auto">Mécanicien automobile</a>
+            <a className="btn p" href="#inscription-auto-moto">Automobile et moto</a>
+          </div>
+          <p className="account-switch mu">
+            Vous avez déjà un compte ? <a href="#connexion">Se connecter</a>
+          </p>
+        </>
+      ) : (
+      <>
       <p className="mu">
         {registering
           ? role === "mechanic"
-            ? "Inscrivez votre compte réparateur pour présenter votre atelier et répondre aux demandes de devis."
+            ? "Après la création du compte, complétez la fiche de votre atelier. Elle sera envoyée à l’administration et publiée après validation."
             : "Créez un compte pour envoyer des demandes de devis et suivre les réponses des réparateurs."
           : "Connectez-vous pour accéder à votre espace MécanoConnect."}
       </p>
@@ -87,14 +133,16 @@ export default function Account({ mode, onLogin }) {
         <input id="password" name="password" type="password" autoComplete={registering ? "new-password" : "current-password"} minLength={registering ? 10 : undefined} required value={values.password} onChange={update} />
         {error && <p className="form-error" role="alert">{error}</p>}
         <button className="btn p" type="submit" disabled={busy}>
-          {busy ? "Veuillez patienter…" : registering ? `Créer mon compte ${role === "mechanic" ? "mécanicien" : "client"}` : "Se connecter"}
+          {busy ? "Veuillez patienter…" : registering ? `Créer mon compte ${role === "mechanic" ? `mécanicien ${mechanicSpaceLabel}` : "client"}` : "Se connecter"}
         </button>
       </form>
       <p className="account-switch mu">
         {registering ? "Vous avez déjà un compte ?" : "Pas encore de compte ?"}{" "}
-        <a href={registering ? "#connexion" : "#inscription"}>{registering ? "Se connecter" : "Créer mon espace mécanicien"}</a>
+        <a href={registering ? "#connexion" : "#inscription"}>{registering ? "Se connecter" : "Choisir mon espace mécanicien"}</a>
         {!registering && <> · <a href="#inscription-client">Créer un compte client</a></>}
       </p>
+      </>
+      )}
     </section>
   );
 }

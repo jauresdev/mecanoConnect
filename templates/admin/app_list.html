@@ -1,0 +1,54 @@
+{% if app_list %}
+  {% for app in app_list %}
+    {% if app.app_label == "accounts" or app.app_label == "marketplace" %}
+      <div class="app-{{ app.app_label }} module{% if app.app_url in request.path|urlencode %} current-app{% endif %}">
+        <table>
+          <caption>
+            {% if app.app_label == "accounts" %}
+              <a href="{{ app.app_url }}" class="section" title="Gérer les comptes et les vérifications">Comptes et vérifications</a>
+            {% else %}
+              <a href="{{ app.app_url }}" class="section" title="Gérer l’activité de la plateforme">Activité de la plateforme</a>
+            {% endif %}
+          </caption>
+          <thead class="visually-hidden">
+            <tr>
+              <th scope="col">Fonctionnalité</th>
+              <th scope="col">Ajouter</th>
+              <th scope="col">Consulter ou modifier</th>
+            </tr>
+          </thead>
+          {% for model in app.models %}
+            {% if model.object_name == "User" or model.object_name == "ProfessionalVerification" or model.object_name == "RepairShop" or model.object_name == "QuoteRequest" or model.object_name == "QuoteOffer" or model.object_name == "QuoteReport" or model.object_name == "Appointment" or model.object_name == "Review" %}
+              {% with model_name=model.object_name|lower %}
+                <tr class="model-{{ model_name }}{% if model.admin_url in request.path|urlencode %} current-model{% endif %}">
+                  <th scope="row" id="{{ app.app_label }}-{{ model_name }}">
+                    {% if model.admin_url %}
+                      <a href="{{ model.admin_url }}"{% if model.admin_url in request.path|urlencode %} aria-current="page"{% endif %}>
+                        {% if model.object_name == "User" %}Comptes utilisateurs
+                        {% elif model.object_name == "ProfessionalVerification" %}Vérifications professionnelles
+                        {% elif model.object_name == "RepairShop" %}Ateliers
+                        {% elif model.object_name == "QuoteRequest" %}Demandes d’intervention
+                        {% elif model.object_name == "QuoteOffer" %}Devis
+                        {% elif model.object_name == "QuoteReport" %}Signalements
+                        {% elif model.object_name == "Appointment" %}Rendez-vous
+                        {% elif model.object_name == "Review" %}Avis clients
+                        {% endif %}
+                      </a>
+                    {% endif %}
+                  </th>
+                  {% if model.add_url %}
+                    <td><a href="{{ model.add_url }}" class="addlink" aria-describedby="{{ app.app_label }}-{{ model_name }}">Ajouter</a></td>
+                  {% else %}
+                    <td></td>
+                  {% endif %}
+                </tr>
+              {% endwith %}
+            {% endif %}
+          {% endfor %}
+        </table>
+      </div>
+    {% endif %}
+  {% endfor %}
+{% else %}
+  <p>Vous n’avez pas l’autorisation d’accéder aux fonctionnalités d’administration.</p>
+{% endif %}

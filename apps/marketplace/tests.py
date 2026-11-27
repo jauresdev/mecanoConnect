@@ -2,12 +2,15 @@ from io import BytesIO
 import tempfile
 from datetime import timedelta
 
+from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import RequestFactory
 from django.utils import timezone
 from PIL import Image
 from rest_framework.test import APITestCase
 
+from .admin import RepairShopAdmin
 from .models import (
     Appointment,
     CustomerVehicle,
@@ -60,6 +63,7 @@ class MarketplaceApiTests(APITestCase):
             city="Parakou",
             district="Banikanni",
             phone="+22960000000",
+            publication_status=RepairShop.PublicationStatus.APPROVED,
         )
         self.shop.vehicle_types.add(self.moto, self.car)
         self.shop.services.add(self.vidange)
@@ -67,9 +71,21 @@ class MarketplaceApiTests(APITestCase):
     def test_initial_catalogue_is_public(self):
         services = self.client.get("/api/services/")
         vehicles = self.client.get("/api/vehicle-types/")
+        auto_services = self.client.get("/api/services/?vehicle=voiture")
+        moto_services = self.client.get("/api/services/?vehicle=moto")
 
         self.assertEqual(services.status_code, 200)
         self.assertEqual(vehicles.status_code, 200)
+        auto_service_names = {
+            item["name"] for item in auto_services.data["results"]
+        }
+        moto_service_names = {
+            item["name"] for item in moto_services.data["results"]
+        }
+        self.assertIn("Carrosserie", auto_service_names)
+        self.assertNotIn("Carrosserie", moto_service_names)
+        self.assertIn("Chaîne et transmission", moto_service_names)
+        self.assertNotIn("Chaîne et transmission", auto_service_names)
         self.assertTrue(
             any(item["slug"] == "diagnostic" for item in services.data["results"])
         )
@@ -77,6 +93,42 @@ class MarketplaceApiTests(APITestCase):
             {item["slug"] for item in vehicles.data["results"]},
             {"moto", "voiture"},
         )
+
+    def test_admin_workshop_decisions_notify_the_owner(self):
+        staff = User.objects.create_user(
+            username="shop-review-staff",
+            email="shop-review-staff@example.com",
+            password="StaffPass123!secure",
+            is_staff=True,
+        )
+        model_admin = RepairShopAdmin(RepairShop, admin.site)
+        request = RequestFactory().post("/admin/marketplace/repairshop/")
+        request.user = staff
+
+        RepairShop.objects.filter(pk=self.shop.pk).update(
+            publication_status=RepairShop.PublicationStatus.PENDING
+        )
+        self.shop.refresh_from_db()
+        self.shop.publication_status = RepairShop.PublicationStatus.REJECTED
+        self.shop.publication_review_note = "Ajoutez une photo de l’atelier."
+        model_admin.save_model(request, self.shop, None, change=True)
+
+        rejection = Notification.objects.get(recipient=self.mechanic)
+        self.assertEqual(rejection.event, "repair_shop_changes_requested")
+        self.assertIn("Ajoutez une photo de l’atelier.", rejection.message)
+
+        RepairShop.objects.filter(pk=self.shop.pk).update(
+            publication_status=RepairShop.PublicationStatus.PENDING
+        )
+        self.shop.refresh_from_db()
+        self.shop.publication_status = RepairShop.PublicationStatus.APPROVED
+        model_admin.save_model(request, self.shop, None, change=True)
+
+        approval = Notification.objects.get(
+            recipient=self.mechanic,
+            event="repair_shop_approved",
+        )
+        self.assertIn("approuvé et publié", approval.message)
 
     def create_quote(self):
         return QuoteRequest.objects.create(
@@ -137,6 +189,7 @@ class MarketplaceApiTests(APITestCase):
                 "email": "new-mechanic@example.com",
                 "password": "NewMechanicPass123!secure",
                 "role": "mechanic",
+                "vehicle_scope": "moto",
             },
             format="json",
         )
@@ -165,6 +218,7 @@ class MarketplaceApiTests(APITestCase):
                 "phone": "+22961000000",
                 "services": [self.vidange.id],
                 "vehicle_types": [self.moto.id],
+                "is_verified": True,
             },
             format="json",
         )
@@ -172,6 +226,174 @@ class MarketplaceApiTests(APITestCase):
         self.assertEqual(created_shop.status_code, 201)
         self.assertEqual(created_shop.data["owner"], registration.data["id"])
         self.assertEqual(created_shop.data["name"], "Atelier de test")
+        self.assertFalse(created_shop.data["is_verified"])
+        self.assertEqual(
+            created_shop.data["publication_status"],
+            RepairShop.PublicationStatus.DRAFT,
+        )
+
+    def test_both_vehicle_mechanic_can_select_auto_and_moto_specialties(self):
+        mechanic = User.objects.create_user(
+            username="both-mechanic",
+            email="both-mechanic@example.com",
+            password="BothMechanicPass123!secure",
+            role=User.Role.MECHANIC,
+            vehicle_scope=User.VehicleScope.BOTH,
+        )
+        auto_specialty = Service.objects.get(slug="carrosserie")
+        moto_specialty = Service.objects.get(slug="chaine-transmission")
+        self.client.force_authenticate(mechanic)
+
+        response = self.client.post(
+            "/api/shops/",
+            {
+                "name": "Atelier Auto Moto",
+                "business_type": "garage",
+                "city": "Parakou",
+                "district": "Zongo",
+                "phone": "+22961000000",
+                "vehicle_types": [self.car.id, self.moto.id],
+                "services": [auto_specialty.id, moto_specialty.id],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertCountEqual(
+            response.data["services"],
+            [auto_specialty.id, moto_specialty.id],
+        )
+        self.assertCountEqual(
+            response.data["vehicle_types"],
+            [self.car.id, self.moto.id],
+        )
+
+    def test_shop_submission_requires_complete_profile_and_hides_it_until_approval(self):
+        self.client.force_authenticate(self.mechanic)
+        created = self.client.post(
+            "/api/shops/",
+            {
+                "name": "Atelier Moto",
+                "business_type": "mechanic",
+                "city": "Parakou",
+                "district": "Zongo",
+                "phone": "+22961000000",
+                "publication_status": "approved",
+            },
+            format="json",
+        )
+        self.assertEqual(created.status_code, 201, created.data)
+        shop_id = created.data["id"]
+        self.assertEqual(
+            created.data["publication_status"],
+            RepairShop.PublicationStatus.DRAFT,
+        )
+
+        incomplete = self.client.post(f"/api/shops/{shop_id}/submit/", {}, format="json")
+        self.assertEqual(incomplete.status_code, 400)
+
+        image_buffer = BytesIO()
+        Image.new("RGB", (2, 2), color="green").save(image_buffer, format="PNG")
+        image = SimpleUploadedFile(
+            "atelier.png", image_buffer.getvalue(), content_type="image/png"
+        )
+        opening_hours = {
+            "monday": {"open": "08:00", "close": "18:00"},
+            "tuesday": {"open": "08:00", "close": "18:00"},
+            "wednesday": {"open": "08:00", "close": "18:00"},
+            "thursday": {"open": "08:00", "close": "18:00"},
+            "friday": {"open": "08:00", "close": "18:00"},
+            "saturday": {"open": "08:00", "close": "13:00"},
+            "sunday": None,
+        }
+        with tempfile.TemporaryDirectory() as media_root:
+            with self.settings(MEDIA_ROOT=media_root):
+                details = self.client.patch(
+                    f"/api/shops/{shop_id}/",
+                    {
+                        "latitude": 9.337,
+                        "longitude": 2.63,
+                        "opening_hours": opening_hours,
+                        "vehicle_types": [self.moto.id],
+                        "services": [self.vidange.id],
+                    },
+                    format="json",
+                )
+                self.assertEqual(details.status_code, 200, details.data)
+                uploaded = self.client.patch(
+                    f"/api/shops/{shop_id}/",
+                    {"photo": image},
+                    format="multipart",
+                )
+                self.assertEqual(uploaded.status_code, 200, uploaded.data)
+
+                submitted = self.client.post(
+                    f"/api/shops/{shop_id}/submit/", {}, format="json"
+                )
+                self.assertEqual(submitted.status_code, 200, submitted.data)
+                self.assertEqual(
+                    submitted.data["publication_status"],
+                    RepairShop.PublicationStatus.PENDING,
+                )
+
+                self.client.force_authenticate(self.customer)
+                quote_response = self.client.post(
+                    "/api/quotes/",
+                    {
+                        "shop": shop_id,
+                        "vehicle_type": self.moto.id,
+                        "vehicle_model": "Honda CG 125",
+                        "problem": "Le moteur cale.",
+                        "urgency": "planned",
+                        "category": "engine",
+                        "location": "Zongo",
+                        "availability": "Après 15 h",
+                    },
+                    format="json",
+                )
+                self.assertEqual(quote_response.status_code, 400)
+
+                self.client.force_authenticate(None)
+                public_list = self.client.get("/api/shops/")
+                self.assertNotIn(
+                    shop_id,
+                    {item["id"] for item in public_list.data["results"]},
+                )
+                self.assertEqual(self.client.get(f"/api/shops/{shop_id}/").status_code, 404)
+
+                self.client.force_authenticate(self.mechanic)
+                owner_list = self.client.get("/api/shops/?mine=true")
+                self.assertIn(
+                    shop_id,
+                    {item["id"] for item in owner_list.data["results"]},
+                )
+                self.assertNotIn(
+                    shop_id,
+                    {
+                        item["id"]
+                        for item in self.client.get("/api/shops/").data["results"]
+                    },
+                )
+
+                RepairShop.objects.filter(pk=shop_id).update(
+                    publication_status=RepairShop.PublicationStatus.APPROVED
+                )
+                self.client.force_authenticate(None)
+                self.assertEqual(self.client.get(f"/api/shops/{shop_id}/").status_code, 200)
+
+                self.client.force_authenticate(self.mechanic)
+                edited = self.client.patch(
+                    f"/api/shops/{shop_id}/",
+                    {"description": "Nouvelle description"},
+                    format="json",
+                )
+                self.assertEqual(edited.status_code, 200, edited.data)
+                self.assertEqual(
+                    edited.data["publication_status"],
+                    RepairShop.PublicationStatus.DRAFT,
+                )
+                self.client.force_authenticate(None)
+                self.assertEqual(self.client.get(f"/api/shops/{shop_id}/").status_code, 404)
 
     def test_shop_owner_can_edit_shop_but_other_mechanic_cannot(self):
         self.client.force_authenticate(self.mechanic)
@@ -184,6 +406,10 @@ class MarketplaceApiTests(APITestCase):
         self.assertEqual(updated.status_code, 200)
         self.assertEqual(updated.data["name"], "Garage Banikanni rénové")
         self.assertEqual(updated.data["district"], "Zongo")
+        self.assertEqual(
+            updated.data["publication_status"],
+            RepairShop.PublicationStatus.DRAFT,
+        )
 
         self.client.force_authenticate(self.other_mechanic)
         denied = self.client.patch(
@@ -192,7 +418,7 @@ class MarketplaceApiTests(APITestCase):
             format="json",
         )
 
-        self.assertEqual(denied.status_code, 403)
+        self.assertEqual(denied.status_code, 404)
         self.shop.refresh_from_db()
         self.assertEqual(self.shop.name, "Garage Banikanni rénové")
 
@@ -227,6 +453,27 @@ class MarketplaceApiTests(APITestCase):
                 self.shop.refresh_from_db()
                 self.assertTrue(self.shop.photo.name.startswith("shops/"))
 
+                gallery_buffer = BytesIO()
+                Image.new("RGB", (2, 2), color="orange").save(
+                    gallery_buffer, format="PNG"
+                )
+                gallery_image = SimpleUploadedFile(
+                    "atelier-interieur.png",
+                    gallery_buffer.getvalue(),
+                    content_type="image/png",
+                )
+                gallery_response = self.client.post(
+                    f"/api/shops/{self.shop.id}/photos/",
+                    {"photos": [gallery_image]},
+                    format="multipart",
+                )
+                self.assertEqual(gallery_response.status_code, 201)
+                self.assertEqual(len(gallery_response.data), 1)
+                self.assertEqual(
+                    len(self.client.get(f"/api/shops/{self.shop.id}/").data["gallery"]),
+                    1,
+                )
+
     def test_shop_rejects_invalid_opening_hours(self):
         self.client.force_authenticate(self.mechanic)
         response = self.client.patch(
@@ -244,6 +491,9 @@ class MarketplaceApiTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["count"], 1)
         self.assertEqual(response.data["results"][0]["name"], "Garage Banikanni")
+        auto_response = self.client.get("/api/shops/?vehicle=voiture")
+        self.assertEqual(auto_response.status_code, 200)
+        self.assertEqual(auto_response.data["count"], 1)
 
     def test_customer_can_submit_quote_and_only_participants_can_read_it(self):
         self.client.force_authenticate(self.customer)

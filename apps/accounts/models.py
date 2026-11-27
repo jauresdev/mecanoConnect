@@ -15,6 +15,9 @@ class PrivateDocumentStorage(FileSystemStorage):
     def deconstruct(self):
         return ("apps.accounts.models.PrivateDocumentStorage", (), {})
 
+    def url(self, name):
+        raise ValueError("Les justificatifs professionnels ne sont pas publics.")
+
 
 def verification_document_path(instance, filename):
     extension = filename.rsplit(".", 1)[-1].lower()

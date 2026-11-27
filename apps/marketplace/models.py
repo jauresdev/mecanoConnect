@@ -43,6 +43,12 @@ class RepairShop(models.Model):
         GARAGE = "garage", "Garage"
         MECHANIC = "mechanic", "Mécanicien"
 
+    class PublicationStatus(models.TextChoices):
+        DRAFT = "draft", "Brouillon"
+        PENDING = "pending", "En attente de validation"
+        APPROVED = "approved", "Approuvé et publié"
+        REJECTED = "rejected", "Modifications demandées"
+
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
@@ -72,6 +78,20 @@ class RepairShop(models.Model):
     opening_hours = models.JSONField(default=dict, blank=True)
     is_verified = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
+    publication_status = models.CharField(
+        max_length=12,
+        choices=PublicationStatus.choices,
+        default=PublicationStatus.DRAFT,
+    )
+    publication_review_note = models.TextField(blank=True)
+    publication_reviewed_at = models.DateTimeField(null=True, blank=True)
+    publication_reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="reviewed_repair_shops",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

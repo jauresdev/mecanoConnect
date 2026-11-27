@@ -11,6 +11,7 @@ const EMPTY_SHOP = {
   city: "Parakou",
   district: "",
   address: "",
+  years_experience: "",
   latitude: "",
   longitude: "",
   phone: "",
@@ -57,6 +58,37 @@ const CATEGORY_LABELS = {
   other: "Autre problème",
 };
 
+const VERIFICATION_STATUS_LABELS = {
+  not_submitted: "Non soumis",
+  pending: "En attente",
+  in_review: "En cours de vérification",
+  verified: "Professionnel vérifié",
+  rejected: "Refusé",
+};
+
+const VERIFICATION_DOCUMENT_LABELS = {
+  identity: "Pièce d’identité",
+  training: "Formation ou diplôme",
+  business: "Justificatif d’activité",
+  other: "Autre document",
+};
+
+const NOTIFICATION_EVENT_LABELS = {
+  professional_verification_pending: "Vérification reçue",
+  professional_verification_in_review: "Vérification en cours",
+  professional_verification_verified: "Profil vérifié",
+  professional_verification_rejected: "Vérification refusée",
+  repair_shop_approved: "Atelier publié",
+  repair_shop_changes_requested: "Modifications demandées",
+};
+
+const EMPTY_VERIFICATION_FILES = {
+  identity_document: null,
+  business_document: null,
+  training_document: null,
+  other_documents: [],
+};
+
 const setWhenChanged = (setter, nextValue) =>
   setter((currentValue) =>
     JSON.stringify(currentValue) === JSON.stringify(nextValue)
@@ -64,17 +96,56 @@ const setWhenChanged = (setter, nextValue) =>
       : nextValue
   );
 
-export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
+export default function MechanicDashboard({
+  user,
+  onLogout,
+  onUserUpdate,
+  onPreviewShop,
+}) {
+  const vehicleSlug =
+    user.vehicle_scope === "moto"
+      ? "moto"
+      : user.vehicle_scope === "auto"
+        ? "voiture"
+        : "";
+  const spaceLabel =
+    vehicleSlug === "moto"
+      ? "moto"
+      : vehicleSlug === "voiture"
+        ? "automobile"
+        : "moto et automobile";
   const [shops, setShops] = useState([]);
   const [quotes, setQuotes] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [appointments, setAppointments] = useState([]);
   const [services, setServices] = useState([]);
   const [vehicles, setVehicles] = useState([]);
-  const [shop, setShop] = useState(EMPTY_SHOP);
+  const [verification, setVerification] = useState({
+    status: "not_submitted",
+  });
+  const [verificationFiles, setVerificationFiles] = useState(
+    EMPTY_VERIFICATION_FILES
+  );
+  const [profile, setProfile] = useState({
+    first_name: user.first_name || "",
+    last_name: user.last_name || "",
+    phone: user.phone || "",
+  });
+  const [profilePhotoFile, setProfilePhotoFile] = useState(null);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileError, setProfileError] = useState("");
+  const [profileNotice, setProfileNotice] = useState("");
+  const [verificationSaving, setVerificationSaving] = useState(false);
+  const [verificationError, setVerificationError] = useState("");
+  const [verificationNotice, setVerificationNotice] = useState("");
+  const [shop, setShop] = useState({
+    ...EMPTY_SHOP,
+    business_type: vehicleSlug === "moto" ? "mechanic" : "garage",
+  });
   const [locationInput, setLocationInput] = useState("");
   const [locationMessage, setLocationMessage] = useState("");
   const [photoFile, setPhotoFile] = useState(null);
+  const [galleryFiles, setGalleryFiles] = useState([]);
   const [editingShopId, setEditingShopId] = useState(null);
   const [showShopForm, setShowShopForm] = useState(false);
   const [answers, setAnswers] = useState({});
@@ -93,26 +164,49 @@ export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
     if (!silent) setBusy(true);
     setError("");
     try {
-      const [shopList, quoteList, serviceList, vehicleList, notificationList, appointmentList] = await Promise.all([
-        apiList("/shops/"),
+      const [
+        shopList,
+        quoteList,
+        serviceList,
+        vehicleList,
+        notificationList,
+        appointmentList,
+        verificationRequest,
+      ] = await Promise.all([
+        apiList("/shops/?mine=true"),
         apiList("/quotes/"),
-        apiList("/services/"),
+        apiList(vehicleSlug ? `/services/?vehicle=${vehicleSlug}` : "/services/"),
         apiList("/vehicle-types/"),
         apiList("/notifications/"),
         apiList("/appointments/"),
+        api("/auth/verification/"),
       ]);
       setWhenChanged(setShops, shopList.filter((item) => item.owner === user.id));
       setWhenChanged(setQuotes, quoteList);
       setWhenChanged(setNotifications, notificationList);
       setWhenChanged(setAppointments, appointmentList);
       setWhenChanged(setServices, serviceList);
-      setWhenChanged(setVehicles, vehicleList);
+      setWhenChanged(
+        setVehicles,
+        vehicleSlug
+          ? vehicleList.filter((item) => item.slug === vehicleSlug)
+          : vehicleList
+      );
+      setVerification(verificationRequest);
     } catch (requestError) {
       setError(requestError.message);
     } finally {
       if (!silent) setBusy(false);
     }
-  }, [user.id]);
+  }, [user.id, vehicleSlug]);
+
+  useEffect(() => {
+    setProfile({
+      first_name: user.first_name || "",
+      last_name: user.last_name || "",
+      phone: user.phone || "",
+    });
+  }, [user.first_name, user.last_name, user.phone]);
 
   useEffect(() => {
     loadDashboard();
@@ -132,11 +226,103 @@ export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
     setShop({ ...shop, [name]: type === "checkbox" ? checked : value });
   };
 
+  const saveProfile = async (event) => {
+    event.preventDefault();
+    setProfileError("");
+    setProfileNotice("");
+    if (profilePhotoFile && profilePhotoFile.size > 5 * 1024 * 1024) {
+      setProfileError("La photo de profil ne peut pas dépasser 5 Mo.");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("first_name", profile.first_name);
+    formData.append("last_name", profile.last_name);
+    formData.append("phone", profile.phone);
+    if (profilePhotoFile) formData.append("profile_photo", profilePhotoFile);
+
+    setProfileSaving(true);
+    try {
+      const updatedUser = await api("/auth/me/", {
+        method: "PATCH",
+        body: formData,
+      });
+      setProfile({
+        first_name: updatedUser.first_name || "",
+        last_name: updatedUser.last_name || "",
+        phone: updatedUser.phone || "",
+      });
+      setProfilePhotoFile(null);
+      onUserUpdate(updatedUser);
+      setProfileNotice("Votre profil professionnel a été mis à jour.");
+    } catch (requestError) {
+      setProfileError(requestError.message);
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  const submitVerification = async (event) => {
+    event.preventDefault();
+    setVerificationError("");
+    setVerificationNotice("");
+    if (
+      !verificationFiles.identity_document ||
+      !verificationFiles.business_document
+    ) {
+      setVerificationError(
+        "Ajoutez une pièce d’identité et un justificatif d’activité."
+      );
+      return;
+    }
+    if (verificationFiles.other_documents.length > 5) {
+      setVerificationError("Vous pouvez joindre au maximum cinq documents annexes.");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("identity_document", verificationFiles.identity_document);
+    formData.append("business_document", verificationFiles.business_document);
+    if (verificationFiles.training_document) {
+      formData.append("training_document", verificationFiles.training_document);
+    }
+    verificationFiles.other_documents.forEach((file) => {
+      formData.append("other_documents", file);
+    });
+
+    setVerificationSaving(true);
+    try {
+      const submitted = await api("/auth/verification/", {
+        method: "POST",
+        body: formData,
+      });
+      setVerification(submitted);
+      setVerificationFiles(EMPTY_VERIFICATION_FILES);
+      setVerificationNotice(
+        "Vos justificatifs ont été transmis à l’administration pour vérification."
+      );
+    } catch (requestError) {
+      setVerificationError(requestError.message);
+    } finally {
+      setVerificationSaving(false);
+    }
+  };
+
   const updateSelection = (field, id) => {
     const selected = shop[field].includes(id)
       ? shop[field].filter((value) => value !== id)
       : [...shop[field], id];
-    setShop({ ...shop, [field]: selected });
+    const updatedShop = { ...shop, [field]: selected };
+    if (field === "vehicle_types") {
+      updatedShop.services = shop.services.filter((serviceId) => {
+        const service = services.find((item) => item.id === serviceId);
+        return (
+          !service?.vehicle_types?.length ||
+          service.vehicle_types.some((vehicleId) => selected.includes(vehicleId))
+        );
+      });
+    }
+    setShop(updatedShop);
   };
 
   const updateOpeningHours = (day, value) => {
@@ -162,10 +348,14 @@ export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
   };
 
   const beginCreateShop = () => {
-    setShop(EMPTY_SHOP);
+    setShop({
+      ...EMPTY_SHOP,
+      business_type: vehicleSlug === "moto" ? "mechanic" : "garage",
+    });
     setLocationInput("");
     setLocationMessage("");
     setPhotoFile(null);
+    setGalleryFiles([]);
     setEditingShopId(null);
     setShowShopForm(true);
     setError("");
@@ -181,6 +371,7 @@ export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
     );
     setLocationMessage("");
     setPhotoFile(null);
+    setGalleryFiles([]);
     setShop({
       name: item.name,
       business_type: item.business_type,
@@ -188,6 +379,7 @@ export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
       city: item.city,
       district: item.district,
       address: item.address || "",
+      years_experience: item.years_experience ?? "",
       latitude: item.latitude ?? "",
       longitude: item.longitude ?? "",
       phone: item.phone,
@@ -214,6 +406,7 @@ export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
     setLocationInput("");
     setLocationMessage("");
     setPhotoFile(null);
+    setGalleryFiles([]);
     setError("");
   };
 
@@ -244,6 +437,19 @@ export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
       setError("La photo ne peut pas dépasser 5 Mo.");
       return;
     }
+    const currentShop = shops.find((item) => item.id === editingShopId);
+    if (galleryFiles.length + (currentShop?.gallery?.length || 0) > 10) {
+      setError("Un atelier peut afficher au maximum 10 photos.");
+      return;
+    }
+    if (galleryFiles.some((file) => file.size > 5 * 1024 * 1024)) {
+      setError("Chaque photo de galerie ne peut pas dépasser 5 Mo.");
+      return;
+    }
+    if (!photoFile && !currentShop?.photo) {
+      setError("Ajoutez une photo de votre atelier avant l’envoi à l’administration.");
+      return;
+    }
     const invalidHours = WEEK_DAYS.some(([day]) => {
       const hours = shop.opening_hours[day];
       return (
@@ -257,10 +463,18 @@ export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
       setError("Vérifiez les heures d’ouverture et de fermeture de chaque jour.");
       return;
     }
-    if (locationInput.trim() && (shop.latitude === "" || shop.longitude === "")) {
+    if (WEEK_DAYS.some(([day]) => !Object.hasOwn(shop.opening_hours, day))) {
+      setError("Indiquez les horaires ou marquez comme fermé chacun des sept jours.");
+      return;
+    }
+    if (shop.latitude === "" || shop.longitude === "") {
       setError(
-        "La localisation collée n’a pas été reconnue. Copiez les coordonnées Google Maps (ex. 9.337, 2.630) ou un lien complet contenant la position."
+        "Ajoutez les coordonnées Google Maps de votre atelier avant de l’envoyer."
       );
+      return;
+    }
+    if (!shop.vehicle_types.length || !shop.services.length) {
+      setError("Sélectionnez au moins un véhicule pris en charge et une spécialité.");
       return;
     }
     setSavingShop(true);
@@ -273,29 +487,33 @@ export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
           longitude: shop.longitude === "" ? null : Number(shop.longitude),
         }),
       });
-      let photoError = "";
+      setEditingShopId(savedShop.id);
       if (photoFile) {
         const formData = new FormData();
         formData.append("photo", photoFile);
-        try {
-          await api(`/shops/${savedShop.id}/`, {
-            method: "PATCH",
-            body: formData,
-          });
-        } catch (uploadError) {
-          photoError = ` Les autres informations ont été enregistrées, mais la photo n’a pas pu être envoyée : ${uploadError.message}`;
-        }
+        await api(`/shops/${savedShop.id}/`, {
+          method: "PATCH",
+          body: formData,
+        });
       }
+      if (galleryFiles.length) {
+        const galleryData = new FormData();
+        galleryFiles.forEach((file) => galleryData.append("photos", file));
+        await api(`/shops/${savedShop.id}/photos/`, {
+          method: "POST",
+          body: galleryData,
+        });
+      }
+      await api(`/shops/${savedShop.id}/submit/`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
       setShop(EMPTY_SHOP);
       setShowShopForm(false);
       setEditingShopId(null);
       setPhotoFile(null);
-      setNotice(
-        (editingShopId
-          ? "Les informations de votre atelier ont été mises à jour."
-          : "Votre atelier est enregistré. Vous pouvez maintenant gérer sa fiche depuis Mes ateliers.") +
-          photoError
-      );
+      setGalleryFiles([]);
+      setNotice("Votre fiche a été envoyée à l’administration. Elle sera publiée après validation.");
       await loadDashboard();
     } catch (requestError) {
       setError(requestError.message);
@@ -523,6 +741,52 @@ export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
   const newQuoteCount = quotes.filter((quote) => quote.status === "new").length;
   const acceptedQuoteCount = quotes.filter((quote) => ["accepted", "quote_accepted", "appointment_confirmed", "in_progress"].includes(quote.status)).length;
   const completedQuoteCount = quotes.filter((quote) => quote.status === "completed").length;
+  const autoVehicle = vehicles.find((vehicle) => vehicle.slug === "voiture");
+  const motoVehicle = vehicles.find((vehicle) => vehicle.slug === "moto");
+  const specialtyGroups =
+    autoVehicle && motoVehicle
+      ? [
+          {
+            key: "shared",
+            label: "Spécialités communes Auto et Moto",
+            services: services.filter(
+              (service) =>
+                !service.vehicle_types?.length ||
+                (service.vehicle_types.includes(autoVehicle.id) &&
+                  service.vehicle_types.includes(motoVehicle.id))
+            ),
+          },
+          {
+            key: "auto",
+            label: "Spécialités automobiles",
+            services: services.filter(
+              (service) =>
+                service.vehicle_types?.includes(autoVehicle.id) &&
+                !service.vehicle_types.includes(motoVehicle.id)
+            ),
+          },
+          {
+            key: "moto",
+            label: "Spécialités moto",
+            services: services.filter(
+              (service) =>
+                service.vehicle_types?.includes(motoVehicle.id) &&
+                !service.vehicle_types.includes(autoVehicle.id)
+            ),
+          },
+        ].filter((group) => group.services.length)
+      : [
+          {
+            key: spaceLabel,
+            label: `Spécialités ${spaceLabel}`,
+            services: services.filter(
+              (service) =>
+                !vehicles[0] ||
+                !service.vehicle_types?.length ||
+                service.vehicle_types.includes(vehicles[0].id)
+            ),
+          },
+        ];
 
   const logout = () => {
     clearSession();
@@ -534,9 +798,11 @@ export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
     <main className="dashboard">
       <div className="dashboard-heading">
         <div>
-          <p className="eyebrow">ESPACE GARAGE & RÉPARATEUR</p>
+          <p className="eyebrow">ESPACE MÉCANICIEN {spaceLabel.toUpperCase()}</p>
           <h1>Bonjour{user.first_name ? ` ${user.first_name}` : ""}</h1>
-          <p className="mu">Votre tableau de bord pour piloter vos ateliers et suivre vos clients.</p>
+          <p className="mu">
+            Votre espace {spaceLabel} pour renseigner votre atelier, vos horaires et suivre vos clients.
+          </p>
         </div>
         <div className="row">
           <button className="btn" type="button" onClick={loadDashboard}>Actualiser</button>
@@ -548,6 +814,196 @@ export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
       {notice && <p className="form-success" role="status">{notice}</p>}
 
       <section className="dashboard-section">
+        <div className="sec"><h2>Mon profil professionnel</h2></div>
+        <form className="card shop-form" onSubmit={saveProfile}>
+          <div className="form-grid">
+            <div>
+              <label htmlFor="profile-first-name">Prénom</label>
+              <input
+                id="profile-first-name"
+                autoComplete="given-name"
+                value={profile.first_name}
+                onChange={(event) =>
+                  setProfile({ ...profile, first_name: event.target.value })
+                }
+              />
+            </div>
+            <div>
+              <label htmlFor="profile-last-name">Nom</label>
+              <input
+                id="profile-last-name"
+                autoComplete="family-name"
+                value={profile.last_name}
+                onChange={(event) =>
+                  setProfile({ ...profile, last_name: event.target.value })
+                }
+              />
+            </div>
+            <div>
+              <label htmlFor="profile-phone">Téléphone professionnel</label>
+              <input
+                id="profile-phone"
+                type="tel"
+                autoComplete="tel"
+                value={profile.phone}
+                onChange={(event) =>
+                  setProfile({ ...profile, phone: event.target.value })
+                }
+              />
+            </div>
+            <div>
+              <label htmlFor="profile-photo">Photo de profil</label>
+              <input
+                id="profile-photo"
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={(event) =>
+                  setProfilePhotoFile(event.target.files?.[0] || null)
+                }
+              />
+            </div>
+          </div>
+          {user.profile_photo && (
+            <img
+              className="profile-photo-preview"
+              src={user.profile_photo}
+              alt="Photo actuelle du profil professionnel"
+            />
+          )}
+          {profilePhotoFile && (
+            <p className="mu sm">Nouvelle photo : {profilePhotoFile.name}</p>
+          )}
+          <p className="mu sm">
+            Image JPG, PNG ou WebP, 5 Mo maximum. Nom, prénom et téléphone seront visibles sur votre fiche publique.
+          </p>
+          {profileError && <p className="form-error" role="alert">{profileError}</p>}
+          {profileNotice && <p className="form-success" role="status">{profileNotice}</p>}
+          <button className="btn p" type="submit" disabled={profileSaving}>
+            {profileSaving ? "Enregistrement…" : "Enregistrer mon profil"}
+          </button>
+        </form>
+      </section>
+
+      <section className="dashboard-section">
+        <div className="sec">
+          <h2>Vérification professionnelle</h2>
+          <span className={`shop-badge verification-${verification.status}`}>
+            {VERIFICATION_STATUS_LABELS[verification.status] || verification.status}
+          </span>
+        </div>
+        <div className="card">
+          <p className="mu">
+            Les justificatifs sont stockés hors du répertoire public et consultables uniquement par les administrateurs autorisés.
+          </p>
+          {verification.rejection_reason && (
+            <p className="form-error" role="alert">
+              Motif du refus : {verification.rejection_reason}
+            </p>
+          )}
+          {verification.documents?.length > 0 && (
+            <ul className="verification-documents">
+              {verification.documents.map((document) => (
+                <li key={document.id}>
+                  {VERIFICATION_DOCUMENT_LABELS[document.document_type] || "Justificatif"} — {document.original_filename}
+                </li>
+              ))}
+            </ul>
+          )}
+          {["not_submitted", "rejected"].includes(verification.status) ? (
+            <form className="shop-form" onSubmit={submitVerification}>
+              <div className="form-grid">
+                <div>
+                  <label htmlFor="verification-identity">Pièce d’identité (obligatoire)</label>
+                  <input
+                    id="verification-identity"
+                    type="file"
+                    accept=".pdf,.jpg,.jpeg,.png,.webp"
+                    required
+                    onChange={(event) =>
+                      setVerificationFiles({
+                        ...verificationFiles,
+                        identity_document: event.target.files?.[0] || null,
+                      })
+                    }
+                  />
+                </div>
+                <div>
+                  <label htmlFor="verification-business">Justificatif d’activité (obligatoire)</label>
+                  <input
+                    id="verification-business"
+                    type="file"
+                    accept=".pdf,.jpg,.jpeg,.png,.webp"
+                    required
+                    onChange={(event) =>
+                      setVerificationFiles({
+                        ...verificationFiles,
+                        business_document: event.target.files?.[0] || null,
+                      })
+                    }
+                  />
+                </div>
+                <div>
+                  <label htmlFor="verification-training">Formation ou diplôme (facultatif)</label>
+                  <input
+                    id="verification-training"
+                    type="file"
+                    accept=".pdf,.jpg,.jpeg,.png,.webp"
+                    onChange={(event) =>
+                      setVerificationFiles({
+                        ...verificationFiles,
+                        training_document: event.target.files?.[0] || null,
+                      })
+                    }
+                  />
+                </div>
+                <div>
+                  <label htmlFor="verification-other">Autres justificatifs (facultatif, 5 maximum)</label>
+                  <input
+                    id="verification-other"
+                    type="file"
+                    multiple
+                    accept=".pdf,.jpg,.jpeg,.png,.webp"
+                    onChange={(event) =>
+                      setVerificationFiles({
+                        ...verificationFiles,
+                        other_documents: Array.from(event.target.files || []),
+                      })
+                    }
+                  />
+                </div>
+              </div>
+              <p className="mu sm">
+                PDF, JPG, PNG ou WebP. 10 Mo maximum par fichier et 30 Mo au total.
+              </p>
+              {verificationError && (
+                <p className="form-error" role="alert">{verificationError}</p>
+              )}
+              {verificationNotice && (
+                <p className="form-success" role="status">{verificationNotice}</p>
+              )}
+              <button className="btn p" type="submit" disabled={verificationSaving || busy}>
+                {verificationSaving ? "Envoi sécurisé…" : "Soumettre mes justificatifs"}
+              </button>
+            </form>
+          ) : (
+            <>
+              {verificationError && (
+                <p className="form-error" role="alert">{verificationError}</p>
+              )}
+              {verificationNotice && (
+                <p className="form-success" role="status">{verificationNotice}</p>
+              )}
+              <p className="mu sm">
+                {verification.reviewed_at
+                  ? `Dernière décision le ${new Date(verification.reviewed_at).toLocaleDateString("fr-FR")}.`
+                  : "Votre demande est en cours de traitement."}
+              </p>
+            </>
+          )}
+        </div>
+      </section>
+
+      <section className="dashboard-section">
         <div className="sec"><h2>Notifications</h2></div>
         {notifications.length === 0 ? (
           <p className="card mu">Aucune notification.</p>
@@ -556,7 +1012,10 @@ export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
             {notifications.slice(0, 8).map((notification) => (
               <article className="card" key={notification.id}>
                 <div className="row">
-                  <b>{notification.event.replaceAll("_", " ")}</b>
+                  <b>
+                    {NOTIFICATION_EVENT_LABELS[notification.event] ||
+                      notification.event.replaceAll("_", " ")}
+                  </b>
                   {!notification.is_read && (
                     <button className="text-button" type="button" onClick={() => markNotificationRead(notification.id)}>
                       Marquer comme lue
@@ -634,16 +1093,26 @@ export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
               <article className="card mechanic-shop" key={item.id}>
                 <div className="row">
                   <h3>{item.name}</h3>
-                  <span className={item.is_verified ? "shop-badge verified" : "shop-badge"}>
-                    {item.is_verified ? "Vérifié" : "En attente de vérification"}
+                  <span className={`shop-badge publication-${item.publication_status}`}>
+                    {{
+                      draft: "Brouillon",
+                      pending: "En attente de validation",
+                      approved: "Publié",
+                      rejected: "Modifications demandées",
+                    }[item.publication_status] || "À compléter"}
                   </span>
                 </div>
                 <p className="mu">{item.district}, {item.city} · {item.phone}</p>
+                {item.publication_review_note && (
+                  <p className="form-error">Retour de l’administration : {item.publication_review_note}</p>
+                )}
                 <p>{item.description || "Aucune description renseignée."}</p>
                 <p className="mu">{item.vehicle_types.map((id) => vehicles.find((vehicle) => vehicle.id === id)?.name).filter(Boolean).join(" · ") || "Aucun véhicule renseigné"}</p>
                 <div className="shop-card-actions">
                   <button className="btn" type="button" onClick={() => beginEditShop(item)}>Modifier les informations</button>
-                  <button className="btn" type="button" onClick={() => onPreviewShop(item.id)}>Voir la fiche publique</button>
+                  {item.publication_status === "approved" && (
+                    <button className="btn" type="button" onClick={() => onPreviewShop(item.id)}>Voir la fiche publique</button>
+                  )}
                 </div>
               </article>
             ))}
@@ -888,7 +1357,7 @@ export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
       {(showShopForm || shops.length === 0) && (
       <section className="dashboard-section" id="shop-form">
         <div className="sec">
-          <h2>{editingShopId ? "Modifier mon atelier" : "Ajouter un atelier"}</h2>
+          <h2>{editingShopId ? "Modifier ma fiche atelier" : "Créer ma fiche atelier"}</h2>
           {shops.length > 0 && <button className="btn" type="button" onClick={closeShopForm}>Annuler</button>}
         </div>
         <form className="card shop-form" onSubmit={saveShop}>
@@ -919,7 +1388,17 @@ export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
           </div>
           <label htmlFor="shop-address">Adresse (facultative)</label>
           <input id="shop-address" name="address" value={shop.address} onChange={updateShop} />
-          <label htmlFor="shop-photo">Photo principale de l’atelier (facultative)</label>
+          <label htmlFor="shop-experience">Années d’expérience</label>
+          <input
+            id="shop-experience"
+            name="years_experience"
+            type="number"
+            min="0"
+            max="80"
+            value={shop.years_experience ?? ""}
+            onChange={updateShop}
+          />
+          <label htmlFor="shop-photo">Photo principale de l’atelier</label>
           <input
             id="shop-photo"
             name="photo"
@@ -943,8 +1422,40 @@ export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
               alt="Photo actuelle de l’atelier"
             />
           )}
+          <label htmlFor="shop-gallery">Photos de l’atelier (10 maximum)</label>
+          <input
+            id="shop-gallery"
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            multiple
+            onChange={(event) =>
+              setGalleryFiles(Array.from(event.target.files || []))
+            }
+          />
+          <p className="mu sm">
+            JPG, PNG ou WebP, 5 Mo maximum par image. Sélectionnez seulement les nouvelles photos.
+          </p>
+          {galleryFiles.length > 0 && (
+            <p className="sm form-success" role="status">
+              {galleryFiles.length} nouvelle{galleryFiles.length > 1 ? "s" : ""} photo{galleryFiles.length > 1 ? "s" : ""} sélectionnée{galleryFiles.length > 1 ? "s" : ""}.
+            </p>
+          )}
+          {editingShopId &&
+            shops.find((item) => item.id === editingShopId)?.gallery?.length > 0 && (
+              <div className="shop-gallery-preview">
+                {shops
+                  .find((item) => item.id === editingShopId)
+                  .gallery.map((image, index) => (
+                    <img
+                      key={`${image}-${index}`}
+                      src={image}
+                      alt={`Photo ${index + 1} de l’atelier`}
+                    />
+                  ))}
+              </div>
+            )}
           <fieldset>
-            <legend>Position sur la carte (facultative)</legend>
+            <legend>Localisation Google Maps</legend>
             <p className="mu sm">
               Dans Google Maps, faites un clic droit sur votre emplacement, cliquez sur les coordonnées pour les copier, puis collez-les ici.
             </p>
@@ -971,9 +1482,20 @@ export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
                 {locationMessage}
               </p>
             )}
+            {shop.latitude !== "" && shop.longitude !== "" && (
+              <a
+                className="text-button"
+                href={`https://www.google.com/maps/search/?api=1&query=${shop.latitude},${shop.longitude}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Vérifier ce point sur Google Maps
+              </a>
+            )}
           </fieldset>
           <fieldset>
-            <legend>Horaires d’ouverture (facultatifs)</legend>
+            <legend>Horaires d’ouverture</legend>
+            <p className="mu sm">Renseignez chaque jour ou sélectionnez « Fermé » pour l’envoyer en validation.</p>
             <div className="opening-hours-editor">
               {WEEK_DAYS.map(([day, label]) => {
                 const hours = shop.opening_hours[day];
@@ -1033,24 +1555,37 @@ export default function MechanicDashboard({ user, onLogout, onPreviewShop }) {
               ))}
             </div>
           </fieldset>
-          <fieldset>
-            <legend>Services proposés</legend>
-            <div className="choice-list">
-              {services.map((item) => (
-                <label key={item.id}>
-                  <input type="checkbox" checked={shop.services.includes(item.id)} onChange={() => updateSelection("services", item.id)} />
-                  {item.name}
-                </label>
-              ))}
-            </div>
-          </fieldset>
+          {specialtyGroups.map((group) => (
+            <fieldset key={group.key}>
+              <legend>{group.label}</legend>
+              <div className="choice-list">
+                {group.services.map((item) => (
+                  <label key={item.id}>
+                    <input
+                      type="checkbox"
+                      checked={shop.services.includes(item.id)}
+                      disabled={
+                        shop.vehicle_types.length > 0 &&
+                        item.vehicle_types?.length > 0 &&
+                        !item.vehicle_types.some((vehicleId) =>
+                          shop.vehicle_types.includes(vehicleId)
+                        )
+                      }
+                      onChange={() => updateSelection("services", item.id)}
+                    />
+                    {item.name}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          ))}
           <label className="check-label">
             <input name="mobile_service" type="checkbox" checked={shop.mobile_service} onChange={updateShop} />
             Je propose le dépannage à domicile
           </label>
           <div className="row shop-form-actions">
             <button className="btn p" type="submit" disabled={savingShop || busy}>
-              {savingShop ? "Enregistrement…" : editingShopId ? "Enregistrer les modifications" : "Créer mon atelier"}
+              {savingShop ? "Envoi en cours…" : "Envoyer ma fiche à l’administration"}
             </button>
             {shops.length > 0 && <button className="btn" type="button" onClick={closeShopForm}>Annuler</button>}
           </div>

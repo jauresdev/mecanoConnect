@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { apiList, clearSession, readSession } from "./api";
-import { S } from "./data";
+import { apiList, clearSession, readSession, saveSession } from "./api";
+import { UNIVERSES } from "./data";
 import { useRoute, go } from "./router";
 import { Head } from "./components/Common";
 import Account from "./pages/Account";
@@ -13,10 +13,26 @@ import CustomerDashboard from "./pages/CustomerDashboard";
 
 export default function App() {
   const route = useRoute();
-  const [q, setQ] = useState({ type: "Moto", service: "", lieu: "" });
+  const [q, setQuery] = useState(() => {
+    const savedUniverse = window.localStorage.getItem("mecanoconnect.universe");
+    const universe = savedUniverse === "auto" ? UNIVERSES.auto : UNIVERSES.moto;
+    return { type: universe.type, service: "", lieu: "" };
+  });
+  const setQ = (nextQuery) => {
+    setQuery(nextQuery);
+    const universe = nextQuery.type === UNIVERSES.auto.type ? "auto" : "moto";
+    window.localStorage.setItem("mecanoconnect.universe", universe);
+  };
+  const selectedUniverse =
+    q.type === UNIVERSES.auto.type ? UNIVERSES.auto : UNIVERSES.moto;
+  const directoryVehicle =
+    route === "resultats" || route === "fiche"
+      ? selectedUniverse.vehicleSlug
+      : "";
   const [sel, setSel] = useState(null);
   const [session, setSession] = useState(readSession);
   const [shops, setShops] = useState([]);
+  const [services, setServices] = useState([]);
   const [directoryLoading, setDirectoryLoading] = useState(true);
   const [directoryError, setDirectoryError] = useState("");
 
@@ -24,7 +40,15 @@ export default function App() {
     let active = true;
     if (!["accueil", "resultats", "fiche"].includes(route)) return undefined;
     setDirectoryLoading(true);
-    Promise.all([apiList("/shops/"), apiList("/services/"), apiList("/vehicle-types/")])
+    const shopsPath = directoryVehicle
+      ? `/shops/?vehicle=${directoryVehicle}`
+      : "/shops/";
+    const servicesPath = `/services/?vehicle=${selectedUniverse.vehicleSlug}`;
+    Promise.all([
+      apiList(shopsPath),
+      apiList(servicesPath),
+      apiList("/vehicle-types/"),
+    ])
       .then(([shopList, serviceList, vehicleList]) => {
         const serviceNames = new Map(serviceList.map((item) => [item.id, item.name]));
         const vehicleNames = new Map(vehicleList.map((item) => [item.id, item.name]));
@@ -32,6 +56,10 @@ export default function App() {
           id: shop.id,
           apiId: shop.id,
           n: shop.name,
+          ownerName: shop.owner_name,
+          ownerPhoto: shop.owner_profile_photo,
+          yearsExperience: shop.years_experience,
+          gallery: shop.gallery,
           t: shop.business_type === "garage" ? "Garage" : "Mécanicien",
           q: shop.district,
           city: shop.city,
@@ -60,6 +88,7 @@ export default function App() {
         }));
         if (active) {
           setShops(mappedShops);
+          setServices(serviceList);
           setDirectoryError("");
           setSel((current) =>
             mappedShops.some((shop) => shop.id === current)
@@ -77,7 +106,7 @@ export default function App() {
     return () => {
       active = false;
     };
-  }, [route]);
+  }, [route, directoryVehicle, selectedUniverse.vehicleSlug]);
 
   useEffect(() => {
     const handleStorage = () => setSession(readSession());
@@ -97,7 +126,14 @@ export default function App() {
       go("mecanicien");
     }
     else if (
-      ["connexion", "inscription", "inscription-client"].includes(route) &&
+      [
+        "connexion",
+        "inscription",
+        "inscription-moto",
+        "inscription-auto",
+        "inscription-auto-moto",
+        "inscription-client",
+      ].includes(route) &&
       session?.access
     ) {
       go(session.user?.role === "mechanic" ? "mecanicien" : "client");
@@ -107,6 +143,11 @@ export default function App() {
   const handleLogout = () => {
     clearSession();
     setSession(null);
+  };
+  const handleUserUpdate = (user) => {
+    const updatedSession = { ...session, user };
+    saveSession(updatedSession);
+    setSession(updatedSession);
   };
 
   const pick = (id, stay) => {
@@ -120,12 +161,18 @@ export default function App() {
     <div className="w">
       <Head user={session?.user} onLogout={handleLogout} />
       {route === "resultats" ? (
-        <Results q={q} setQ={setQ} sel={sel} pick={pick} shops={shops} loading={directoryLoading} error={directoryError} services={S} />
+        <Results q={q} setQ={setQ} sel={sel} pick={pick} shops={shops} loading={directoryLoading} error={directoryError} services={services} />
       ) : route === "fiche" ? (
         r ? <Detail r={r} session={session} /> : <p className="card mu">Cet atelier n’est plus disponible.</p>
       ) : route === "devis" ? (
         r ? <Quote r={r} q={q} user={session?.user} /> : <p className="card mu">Cet atelier n’est plus disponible.</p>
-      ) : route === "connexion" || route === "inscription" ? (
+      ) : [
+        "connexion",
+        "inscription",
+        "inscription-moto",
+        "inscription-auto",
+        "inscription-auto-moto",
+      ].includes(route) ? (
         <Account mode={route} onLogin={setSession} />
       ) : route === "inscription-client" ? (
         <Account mode={route} onLogin={setSession} />
@@ -133,15 +180,20 @@ export default function App() {
         <MechanicDashboard
           user={session.user}
           onLogout={handleLogout}
+          onUserUpdate={handleUserUpdate}
           onPreviewShop={(id) => {
             setSel(id);
             go("fiche");
           }}
         />
       ) : route === "client" && session?.user?.role === "customer" ? (
-        <CustomerDashboard user={session.user} onLogout={handleLogout} />
+        <CustomerDashboard
+          user={session.user}
+          onLogout={handleLogout}
+          universe={selectedUniverse}
+        />
       ) : (
-        <Home q={q} setQ={setQ} pick={pick} shops={shops} loading={directoryLoading} error={directoryError} />
+        <Home q={q} setQ={setQ} pick={pick} shops={shops} services={services} loading={directoryLoading} error={directoryError} />
       )}
       <footer>MécanoConnect · Fait au Bénin. Les ateliers de démonstration de la page d’accueil restent fictifs.</footer>
     </div>

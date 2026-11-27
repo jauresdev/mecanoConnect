@@ -57,6 +57,33 @@ label{display:block;font-weight:600;margin:14px 0 6px}
 .card{background:linear-gradient(160deg,rgba(255,255,255,.07),rgba(255,255,255,.025));border:1px solid var(--ln);border-radius:18px;padding:18px;backdrop-filter:blur(6px)}
 
 /* ---------- Accueil : hero ---------- */
+.universe-chooser{padding:24px 0 8px;scroll-margin-top:20px}
+.universe-heading{display:grid;gap:8px;margin-bottom:16px}
+.universe-heading h2{font-size:clamp(25px,4vw,36px)}
+.universe-grid{display:grid;grid-template-columns:1fr;gap:14px}
+.universe-card{display:grid;grid-template-columns:64px minmax(0,1fr) 22px;align-items:center;gap:15px;min-height:145px;padding:20px;border:1px solid var(--ln);border-radius:20px;background:linear-gradient(145deg,rgba(252,209,22,.13),rgba(255,255,255,.025));transition:transform .18s,border-color .18s,box-shadow .18s}
+.universe-card:hover{transform:translateY(-3px);border-color:var(--ac);box-shadow:0 14px 32px rgba(0,0,0,.25)}
+.universe-card.auto{background:linear-gradient(145deg,rgba(252,209,22,.16),rgba(255,255,255,.025))}
+.universe-card.moto{background:linear-gradient(145deg,rgba(54,174,225,.2),rgba(255,255,255,.025))}
+.universe-icon{display:grid;place-items:center;width:62px;height:62px;border-radius:18px;background:rgba(252,209,22,.17);font-size:34px}
+.universe-card.moto .universe-icon{background:rgba(54,174,225,.2)}
+.universe-copy{display:grid;gap:5px}
+.universe-copy b{font-size:20px}
+.universe-copy>span{color:var(--mu);font-size:14px;line-height:1.4}
+.universe-copy strong{margin-top:5px;color:var(--ac);font-size:14px}
+.universe-card.moto .universe-copy strong{color:#77d6ff}
+.universe-arrow{font-size:23px;color:var(--ac)}
+.universe-card.moto .universe-arrow{color:#77d6ff}
+.verification-badge{display:inline-flex;align-items:center;gap:5px;width:fit-content;margin:6px 0;background:rgba(5,12,9,.78);color:#4be3a0;border:1px solid rgba(75,227,160,.45);font-size:12px;font-weight:700;padding:4px 10px;border-radius:99px}
+.profile-avatar{width:58px;height:58px;object-fit:cover;border-radius:50%;border:1px solid var(--ln)}
+.profile-photo-preview{width:90px;height:90px;object-fit:cover;border-radius:50%;border:1px solid var(--ln)}
+.shop-public-gallery,.shop-gallery-preview{display:flex;gap:10px;overflow-x:auto;padding:8px 0}
+.shop-public-gallery img{width:150px;height:105px;flex:0 0 auto;object-fit:cover;border-radius:12px;border:1px solid var(--ln)}
+.shop-gallery-preview img{width:100px;height:76px;flex:0 0 auto;object-fit:cover;border-radius:10px;border:1px solid var(--ln)}
+.verification-documents{display:grid;gap:5px;padding-left:22px}
+@media(min-width:700px){.universe-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.universe-card{min-height:168px;padding:24px}}
+.results-heading{display:flex;align-items:end;justify-content:space-between;gap:14px}
+@media(max-width:520px){.results-heading{align-items:flex-start;flex-direction:column;gap:6px}}
 .hero{display:grid;gap:10px;padding:26px 0 8px;position:relative}
 @media(min-width:900px){.hero{grid-template-columns:1.15fr .85fr;align-items:center;padding-top:40px}}
 .hero h1{font-size:clamp(30px,6vw,64px);white-space:nowrap;font-weight:800;font-style:italic;letter-spacing:-.03em;line-height:1.02;text-shadow:0 4px 28px rgba(0,0,0,.45)}
@@ -248,6 +275,12 @@ h2{font-size:26px;font-weight:800;font-style:italic;letter-spacing:-.02em}
 .shop-card-actions .btn{font-size:13px;padding:9px 12px}
 .shop-badge{display:inline-flex;align-items:center;border:1px solid var(--ln);border-radius:99px;padding:4px 10px;color:var(--mu);font-size:12px;font-weight:700}
 .shop-badge.verified{color:#4be3a0;border-color:rgba(75,227,160,.45)}
+.shop-badge.verification-verified{color:#4be3a0;border-color:rgba(75,227,160,.45)}
+.shop-badge.verification-pending,.shop-badge.verification-in_review{color:#ffe784;border-color:rgba(252,209,22,.45)}
+.shop-badge.verification-rejected{color:#ff9eaa;border-color:rgba(232,17,45,.45)}
+.shop-badge.publication-approved{color:#4be3a0;border-color:rgba(75,227,160,.45)}
+.shop-badge.publication-pending{color:#ffe784;border-color:rgba(252,209,22,.45)}
+.shop-badge.publication-rejected{color:#ff9eaa;border-color:rgba(232,17,45,.45)}
 .shop-badge.status-new{color:#ffe784;border-color:rgba(252,209,22,.45)}
 .shop-badge.status-discussion,.shop-badge.status-quote_sent{color:#ffe784;border-color:rgba(252,209,22,.45)}
 .shop-badge.status-quote_accepted,.shop-badge.status-appointment_confirmed{color:#9edbff;border-color:rgba(95,180,255,.45)}

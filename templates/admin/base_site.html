@@ -1,0 +1,23 @@
+{% extends "admin/base.html" %}
+{% load static %}
+
+{% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title|default:"Admin" }} | {{ site_title|default:"MécanoConnect" }}{% endblock %}
+
+{% block extrastyle %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'accounts/admin.css' %}">
+{% endblock %}
+
+{% block branding %}
+  <div id="site-name">
+    <a class="mc-admin-brand" href="{% url 'admin:index' %}">
+      <span class="mc-admin-mark" aria-hidden="true">MC</span>
+      <span class="mc-admin-brand-copy">
+        <strong>Admin</strong>
+        <small>MécanoConnect</small>
+      </span>
+    </a>
+  </div>
+{% endblock %}
+
+{% block nav-global %}{% endblock %}

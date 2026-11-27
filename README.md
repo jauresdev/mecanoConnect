@@ -9,31 +9,36 @@ API REST Django pour l'annuaire de réparateurs, les comptes, les demandes de de
 - Une base SQLite (configuration locale par défaut)
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
 python manage.py migrate
-python manage.py createsuperuser
-python manage.py runserver
+python manage.py createsuperuser  # facultatif, pour accéder à l’administration
+python manage.py runserver 127.0.0.1:8000
 ```
 
-Le serveur écoute sur `http://127.0.0.1:8000`. L'interface d'administration est disponible à `/admin/`, l'état de santé à `/api/health/` et la documentation OpenAPI/Swagger à `/api/docs/`.
+Si PowerShell bloque l'activation, autorisez le script uniquement pour le terminal courant avec `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`. Le fichier `.env` est facultatif en local : les réglages par défaut utilisent SQLite.
+
+Le serveur écoute sur `http://127.0.0.1:8000`. Le tableau de bord d'administration est disponible à `/admin/` pour les comptes staff; il récapitule les vérifications, ateliers, signalements et avis à traiter, avec des liens vers les files de modération. L'état de santé est disponible à `/api/health/` et la documentation OpenAPI/Swagger à `/api/docs/`.
 
 Dans un second terminal, lancer le frontend :
 
 ```bash
-npm install
-npm run dev -- --host 127.0.0.1 --port 5174
+npm ci
+npm run dev
 ```
 
-Le frontend est disponible à `http://127.0.0.1:5174/` et relaie `/api` vers le backend local (`http://127.0.0.1:8003`). Pour lancer le backend sur ce port, utiliser `python manage.py runserver 127.0.0.1:8003`. Si le port 8000 est libre, lancer Vite avec `API_PROXY_TARGET=http://127.0.0.1:8000 npm run dev -- --host 127.0.0.1 --port 5174`.
+Le frontend est disponible à `http://localhost:5173/` et relaie `/api` vers le backend local (`http://127.0.0.1:8000`).
 
-Le lien **Se connecter** ouvre le formulaire de connexion. **Mécanicien** permet de créer un compte réparateur; après inscription et connexion, le tableau de bord `/#mecanicien` permet d'ajouter un atelier et de répondre aux demandes reçues. Les visiteurs peuvent parcourir le catalogue sans compte; les devis nécessitent un compte client. Après connexion, le client retrouve les réponses et le suivi dans `/#client`.
+L'accueil propose les univers **Mécano Auto** et **Mécano Moto**; les recherches, services et demandes de devis restent limités au véhicule sélectionné. Un mécanicien peut choisir à l'inscription l'automobile, la moto ou les deux. Après la création du compte, il complète sa fiche atelier depuis son tableau de bord. Les visiteurs peuvent parcourir le catalogue sans compte; les devis nécessitent un compte client. Après connexion, le client retrouve les réponses et le suivi dans `/#client`.
 
-Après l'ajout d'un atelier, le formulaire se ferme. Le tableau de bord permet ensuite de modifier chaque fiche, filtrer les demandes, répondre aux devis et marquer une intervention acceptée comme terminée. La modification d'une fiche est réservée à son propriétaire.
+La fiche atelier comprend une photo principale, des photos de galerie, une description, l'expérience, la position GPS copiée depuis Google Maps, les horaires des sept jours, les véhicules pris en charge et les spécialités. Les spécialités automobiles et moto sont présentées séparément; les spécialités communes restent partagées. La fiche reste invisible dans l'annuaire jusqu'à sa validation. Un administrateur examine les demandes dans `/admin/marketplace/repairshop/` et passe **Statut de publication** à « Approuvé et publié »; en cas de refus, il renseigne aussi le motif des modifications attendues. Le mécanicien reçoit une notification dans son tableau de bord après une approbation ou une demande de modifications. Toute modification ultérieure d'une fiche publiée la remet en brouillon et nécessite une nouvelle soumission et validation.
 
-Chaque réparateur peut ajouter une photo principale (JPG, PNG ou WebP, 5 Mo maximum) et renseigner les horaires jour par jour. En développement, Django sert les images depuis `MEDIA_ROOT` (`media/`). En production, configurez un stockage persistant pour les fichiers média et servez-les via HTTPS.
+Le tableau de bord permet aussi de modifier la photo et les coordonnées publiques du mécanicien, puis de soumettre une vérification professionnelle avec une pièce d'identité et un justificatif d'activité (formation facultative, jusqu'à cinq documents annexes). Les documents PDF, JPG, PNG ou WebP sont contrôlés, limités à 10 Mo chacun et stockés hors du répertoire média public. La demande peut être suivie dans le tableau de bord; un refus doit comporter un motif et les décisions sont conservées dans `/admin/accounts/professionalverification/`. Le mécanicien reçoit une notification dans son tableau de bord après une décision concernant sa dernière demande. Seuls les comptes staff ayant les permissions de consultation nécessaires peuvent télécharger les justificatifs. Le badge **Professionnel vérifié** est attribué uniquement après validation par un administrateur. Pour suspendre un compte, désactivez-le dans `/admin/accounts/user/`; ses ateliers sont masqués et le badge retiré.
+
+Le tableau de bord permet aussi de filtrer les demandes, répondre aux devis et marquer une intervention acceptée comme terminée. La modification d'une fiche est réservée à son propriétaire.
+
+Chaque réparateur peut ajouter une photo principale et jusqu'à dix photos d'atelier (JPG, PNG ou WebP, 5 Mo maximum par image) et renseigner les horaires jour par jour. En développement, Django sert les images publiques depuis `MEDIA_ROOT` (`media/`); les justificatifs professionnels privés sont stockés séparément et ne sont jamais servis par cette route. En production, configurez des stockages persistants séparés pour les médias publics et les justificatifs privés, et servez l'application via HTTPS.
 
 Les réparateurs peuvent copier les coordonnées d'un point dans Google Maps et les coller dans le champ de localisation (ou coller un lien Google Maps complet contenant les coordonnées) pour faire apparaître leur atelier sur la carte des résultats.
 
@@ -63,7 +68,9 @@ Appliquer ensuite `python manage.py migrate`. En production, fournir la clé sec
 - `POST /api/auth/register/` crée un compte `customer` ou `mechanic`. Le rôle administrateur est attribué uniquement via Django Admin/`createsuperuser`.
 - `POST /api/auth/token/` reçoit `username` et `password`, et renvoie les jetons JWT `access` et `refresh`.
 - `POST /api/auth/token/refresh/` renouvelle le jeton d'accès.
-- `GET/PATCH /api/auth/me/` lit ou modifie le profil (prénom, nom, téléphone).
+- `GET/PATCH /api/auth/me/` lit ou modifie le profil public (prénom, nom, téléphone, photo).
+- `GET/POST /api/auth/verification/` consulte l'état ou soumet les justificatifs d'un mécanicien.
+- `GET /api/auth/verification/documents/{id}/download/` télécharge un justificatif pour un administrateur connecté disposant des permissions de consultation.
 - Envoyer `Authorization: Bearer <access>` pour les opérations authentifiées.
 
 ## Ressources principales

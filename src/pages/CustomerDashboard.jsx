@@ -53,7 +53,7 @@ const setWhenChanged = (setter, nextValue) =>
       : nextValue
   );
 
-export default function CustomerDashboard({ user, onLogout }) {
+export default function CustomerDashboard({ user, onLogout, universe }) {
   const [quotes, setQuotes] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [vehicles, setVehicles] = useState([]);
@@ -210,7 +210,7 @@ export default function CustomerDashboard({ user, onLogout }) {
     <main className="dashboard customer-dashboard">
       <div className="dashboard-heading">
         <div>
-          <p className="eyebrow">ESPACE CLIENT</p>
+          <p className="eyebrow">ESPACE CLIENT · {universe.name.toUpperCase()}</p>
           <h1>Bonjour{user.first_name ? ` ${user.first_name}` : ""}</h1>
           <p className="mu">
             Retrouvez vos véhicules, les échanges avec les réparateurs, les devis

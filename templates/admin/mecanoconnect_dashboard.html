@@ -1,0 +1,139 @@
+{% extends "admin/base_site.html" %}
+
+{% block title %}Tableau de bord | Admin | MécanoConnect{% endblock %}
+
+{% block content %}
+  <div class="mc-admin-dashboard">
+    <section class="mc-admin-hero">
+      <div>
+        <p class="mc-eyebrow">CENTRE DE PILOTAGE</p>
+        <h1>Bonjour {{ request.user.first_name|default:request.user.username }}</h1>
+        <p class="mc-admin-hero-copy">
+          Voici les activités et les demandes de modération de MécanoConnect.
+        </p>
+      </div>
+      <div class="mc-admin-date">
+        <span class="mc-admin-date-icon" aria-hidden="true">◷</span>
+        <span><small>Aujourd’hui</small><strong>{% now "j F Y" %}</strong></span>
+      </div>
+    </section>
+
+    <section class="mc-admin-section" aria-labelledby="mc-overview-title">
+      <div class="mc-section-heading">
+        <div>
+          <p class="mc-eyebrow">EN UN COUP D’ŒIL</p>
+          <h2 id="mc-overview-title">Vue d’ensemble</h2>
+        </div>
+        <a class="mc-refresh-link" href="{% url 'admin:index' %}">Actualiser <span aria-hidden="true">↻</span></a>
+      </div>
+
+      <div class="mc-metrics-grid">
+        {% for metric in admin_metrics %}
+          <a class="mc-metric-card mc-tone-{{ metric.tone }}" href="{{ metric.url }}">
+            <span class="mc-metric-icon" aria-hidden="true">{{ metric.icon }}</span>
+            <span class="mc-metric-copy">
+              <span class="mc-metric-label">{{ metric.label }}</span>
+              <strong class="mc-metric-value">{{ metric.value }}</strong>
+              <span class="mc-metric-detail">{{ metric.detail }}</span>
+            </span>
+            <span class="mc-metric-arrow" aria-hidden="true">↗</span>
+          </a>
+        {% empty %}
+          <p class="mc-empty-state">
+            Aucun accès de consultation n’est attribué à ce compte. Demande à un
+            superutilisateur de configurer ses permissions.
+          </p>
+        {% endfor %}
+      </div>
+    </section>
+
+    <div class="mc-admin-columns">
+      {% if can_view_verifications %}
+        <section class="mc-admin-panel" aria-labelledby="mc-verifications-title">
+          <div class="mc-panel-heading">
+            <div>
+              <p class="mc-eyebrow">CONTRÔLE DES PROFILS</p>
+              <h2 id="mc-verifications-title">Vérifications professionnelles</h2>
+            </div>
+            <a href="{% url 'admin:accounts_professionalverification_changelist' %}">Tout voir <span aria-hidden="true">→</span></a>
+          </div>
+          <div class="mc-work-list">
+            {% for item in verification_items %}
+              <a class="mc-work-item" href="{{ item.url }}">
+                <span class="mc-work-icon mc-work-icon-gold" aria-hidden="true">✓</span>
+                <span class="mc-work-copy">
+                  <strong>{{ item.title }}</strong>
+                  <small>Soumise le {{ item.date|date:"j F Y à H:i" }}</small>
+                </span>
+                <span class="mc-status-pill">{{ item.status }}</span>
+              </a>
+            {% empty %}
+              <div class="mc-empty-state">
+                <span class="mc-empty-check" aria-hidden="true">✓</span>
+                <strong>Aucune vérification à traiter</strong>
+                <span>Les nouveaux dossiers apparaîtront ici.</span>
+              </div>
+            {% endfor %}
+          </div>
+        </section>
+      {% endif %}
+
+      {% if can_view_shops %}
+        <section class="mc-admin-panel" aria-labelledby="mc-shops-title">
+          <div class="mc-panel-heading">
+            <div>
+              <p class="mc-eyebrow">PUBLICATION</p>
+              <h2 id="mc-shops-title">Ateliers à examiner</h2>
+            </div>
+            <a href="{% url 'admin:marketplace_repairshop_changelist' %}?publication_status__exact=pending">Tout voir <span aria-hidden="true">→</span></a>
+          </div>
+          <div class="mc-work-list">
+            {% for item in shop_items %}
+              <a class="mc-work-item" href="{{ item.url }}">
+                <span class="mc-work-icon mc-work-icon-green" aria-hidden="true">⌂</span>
+                <span class="mc-work-copy">
+                  <strong>{{ item.title }}</strong>
+                  <small>{{ item.detail }} · Modifié le {{ item.date|date:"j F Y à H:i" }}</small>
+                </span>
+                <span class="mc-status-pill">À examiner</span>
+              </a>
+            {% empty %}
+              <div class="mc-empty-state">
+                <span class="mc-empty-check" aria-hidden="true">✓</span>
+                <strong>Aucun atelier en attente</strong>
+                <span>Les fiches soumises apparaîtront ici.</span>
+              </div>
+            {% endfor %}
+          </div>
+        </section>
+      {% endif %}
+    </div>
+
+    <section class="mc-admin-section mc-quick-section" aria-labelledby="mc-quick-title">
+      <div class="mc-section-heading">
+        <div>
+          <p class="mc-eyebrow">GESTION</p>
+          <h2 id="mc-quick-title">Accès rapides</h2>
+        </div>
+      </div>
+      <div class="mc-quick-grid">
+        {% for item in quick_links %}
+          <a class="mc-quick-link" href="{{ item.url }}">
+            <span class="mc-quick-link-copy">
+              <strong>{{ item.title }}</strong>
+              <small>{{ item.detail }}</small>
+            </span>
+            <span aria-hidden="true">↗</span>
+          </a>
+        {% empty %}
+          <p class="mc-empty-state">Aucun accès de gestion n’est disponible pour ce compte.</p>
+        {% endfor %}
+      </div>
+    </section>
+
+    <footer class="mc-admin-footer">
+      <span class="mc-admin-mark" aria-hidden="true">MC</span>
+      <span>MécanoConnect · Administration de la plateforme</span>
+    </footer>
+  </div>
+{% endblock %}
