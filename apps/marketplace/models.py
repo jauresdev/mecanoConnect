@@ -15,7 +15,9 @@ class Service(models.Model):
     name = models.CharField(max_length=80, unique=True)
     slug = models.SlugField(max_length=90, unique=True)
     is_active = models.BooleanField(default=True)
-
+    vehicle_types = models.ManyToManyField(
+        "VehicleType", related_name="services", blank=True
+    )
     class Meta:
         ordering = ("name",)
 
@@ -27,6 +29,7 @@ class VehicleType(models.Model):
     name = models.CharField(max_length=40, unique=True)
     slug = models.SlugField(max_length=50, unique=True)
     is_active = models.BooleanField(default=True)
+   
 
     class Meta:
         ordering = ("name",)
@@ -48,6 +51,7 @@ class RepairShop(models.Model):
     name = models.CharField(max_length=160)
     business_type = models.CharField(max_length=16, choices=BusinessType.choices)
     description = models.TextField(max_length=3000, blank=True)
+    years_experience = models.PositiveSmallIntegerField(null=True, blank=True)
     city = models.CharField(max_length=100, default="Parakou")
     district = models.CharField(max_length=100)
     address = models.CharField(max_length=250, blank=True)
@@ -81,6 +85,20 @@ class RepairShop(models.Model):
     def __str__(self):
         return self.name
 
+class RepairShopPhoto(models.Model):
+    shop = models.ForeignKey(
+        RepairShop,
+        on_delete=models.CASCADE,
+        related_name="gallery"
+    )
+    photo = models.ImageField(upload_to="shops/gallery/")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("created_at", "id")
+
+    def __str__(self):
+        return f"Photo — {self.shop.name}"
 
 class CustomerVehicle(models.Model):
     customer = models.ForeignKey(

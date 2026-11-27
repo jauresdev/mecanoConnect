@@ -1,4 +1,6 @@
 from datetime import time
+
+from config.file_validation import validate_image_upload
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils import timezone
@@ -17,6 +19,7 @@ from .models import (
     QuoteReport,
     QuoteRequest,
     RepairShop,
+    RepairShopPhoto,
     Review,
     Service,
     VehicleType,
@@ -26,16 +29,21 @@ from .models import (
 User = get_user_model()
 
 
-class ServiceSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Service
-        fields = ("id", "name", "slug")
-
-
 class VehicleTypeSerializer(serializers.ModelSerializer):
     class Meta:
         model = VehicleType
         fields = ("id", "name", "slug")
+
+
+class ServiceSerializer(serializers.ModelSerializer):
+    vehicle_types = serializers.PrimaryKeyRelatedField(
+        many=True,
+        read_only=True,
+    )
+
+    class Meta:
+        model = Service
+        fields = ("id", "name", "slug", "vehicle_types")
 
 
 class CustomerVehicleSerializer(serializers.ModelSerializer):
@@ -354,7 +362,9 @@ class RepairShopSerializer(serializers.ModelSerializer):
     }
 
     services = serializers.PrimaryKeyRelatedField(
-        many=True, queryset=Service.objects.filter(is_active=True), required=False
+        many=True,
+        queryset=Service.objects.filter(is_active=True),
+        required=False,
     )
     vehicle_types = serializers.PrimaryKeyRelatedField(
         many=True,
@@ -362,8 +372,16 @@ class RepairShopSerializer(serializers.ModelSerializer):
         required=False,
     )
     owner_name = serializers.SerializerMethodField()
+    owner_profile_photo = serializers.SerializerMethodField()
     average_rating = serializers.SerializerMethodField()
     review_count = serializers.SerializerMethodField()
+    years_experience = serializers.IntegerField(
+        min_value=0,
+        max_value=80,
+        required=False,
+        allow_null=True,
+    )
+    gallery = serializers.SerializerMethodField()
 
     class Meta:
         model = RepairShop
@@ -371,9 +389,11 @@ class RepairShopSerializer(serializers.ModelSerializer):
             "id",
             "owner",
             "owner_name",
+            "owner_profile_photo",
             "name",
             "business_type",
             "description",
+            "years_experience",
             "city",
             "district",
             "address",
@@ -382,6 +402,7 @@ class RepairShopSerializer(serializers.ModelSerializer):
             "phone",
             "whatsapp",
             "photo",
+            "gallery",
             "services",
             "vehicle_types",
             "mobile_service",
@@ -396,6 +417,8 @@ class RepairShopSerializer(serializers.ModelSerializer):
             "id",
             "owner",
             "owner_name",
+            "owner_profile_photo",
+            "gallery",
             "is_verified",
             "average_rating",
             "review_count",
@@ -404,10 +427,8 @@ class RepairShopSerializer(serializers.ModelSerializer):
         )
 
     def validate_photo(self, photo):
-        if photo and photo.size > 5 * 1024 * 1024:
-            raise serializers.ValidationError(
-                "La photo ne peut pas dépasser 5 Mo."
-            )
+        if photo:
+            return validate_image_upload(photo)
         return photo
 
     def validate_opening_hours(self, opening_hours):
@@ -442,6 +463,23 @@ class RepairShopSerializer(serializers.ModelSerializer):
     def get_owner_name(self, shop):
         return shop.owner.get_full_name() or shop.owner.username
 
+    @extend_schema_field(serializers.URLField(allow_null=True))
+    def get_owner_profile_photo(self, shop):
+        if not shop.owner.profile_photo:
+            return None
+
+        request = self.context.get("request")
+        url = shop.owner.profile_photo.url
+        return request.build_absolute_uri(url) if request else url
+
+    @extend_schema_field(serializers.ListField(child=serializers.URLField()))
+    def get_gallery(self, shop):
+        request = self.context.get("request")
+        return [
+            request.build_absolute_uri(photo.photo.url) if request else photo.photo.url
+            for photo in shop.gallery.all()
+        ]
+
     @extend_schema_field(serializers.FloatField(allow_null=True))
     def get_average_rating(self, shop):
         return getattr(shop, "average_rating", None)
@@ -457,7 +495,67 @@ class RepairShopSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     "Seuls les comptes réparateur peuvent gérer un atelier."
                 )
+
+            vehicle_types = attrs.get(
+                "vehicle_types",
+                self.instance.vehicle_types.all() if self.instance else (),
+            )
+            allowed_vehicle_slugs = {
+                User.VehicleScope.AUTO: {"voiture"},
+                User.VehicleScope.MOTO: {"moto"},
+                User.VehicleScope.BOTH: {"voiture", "moto"},
+            }.get(request.user.vehicle_scope)
+
+            if allowed_vehicle_slugs is not None and vehicle_types:
+                unsupported = [
+                    vehicle.name
+                    for vehicle in vehicle_types
+                    if vehicle.slug not in allowed_vehicle_slugs
+                ]
+                if unsupported:
+                    raise serializers.ValidationError(
+                        {
+                            "vehicle_types": (
+                                "Votre compte ne peut pas gérer ces véhicules : "
+                                + ", ".join(unsupported)
+                            )
+                        }
+                    )
+
+            services = attrs.get(
+                "services",
+                self.instance.services.all() if self.instance else (),
+            )
+            if vehicle_types and services:
+                selected_vehicle_ids = {vehicle.pk for vehicle in vehicle_types}
+                incompatible = [
+                    service.name
+                    for service in services
+                    if service.vehicle_types.exists()
+                    and not service.vehicle_types.filter(
+                        pk__in=selected_vehicle_ids
+                    ).exists()
+                ]
+                if incompatible:
+                    raise serializers.ValidationError(
+                        {
+                            "services": (
+                                "Ces spécialités ne correspondent pas aux "
+                                "véhicules sélectionnés : "
+                                + ", ".join(incompatible)
+                            )
+                        }
+                    )
         return attrs
+
+
+class RepairShopPhotoSerializer(serializers.ModelSerializer):
+    photo = serializers.ImageField(validators=[validate_image_upload])
+
+    class Meta:
+        model = RepairShopPhoto
+        fields = ("id", "photo", "created_at")
+        read_only_fields = ("id", "created_at")
 
 
 class QuoteRequestSerializer(serializers.ModelSerializer):

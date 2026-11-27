@@ -11,6 +11,7 @@ from .models import (
     QuoteReport,
     QuoteRequest,
     RepairShop,
+    RepairShopPhoto,
     Review,
     Service,
     VehicleType,
@@ -24,7 +25,7 @@ class RepairShopAdmin(admin.ModelAdmin):
     list_filter = ("business_type", "city", "is_verified", "is_active")
     search_fields = ("name", "owner__email", "district", "city")
     filter_horizontal = ("services", "vehicle_types")
-    readonly_fields = ("created_at", "updated_at")
+    readonly_fields = ("is_verified", "created_at", "updated_at")
 
 
 @admin.register(QuoteRequest)
@@ -199,3 +200,10 @@ class QuotePartAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+@admin.register(RepairShopPhoto)
+class RepairShopPhotoAdmin(admin.ModelAdmin):
+    list_display = ("shop", "created_at")
+    search_fields = ("shop__name",)
+    readonly_fields = ("created_at",)

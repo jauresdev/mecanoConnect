@@ -16,6 +16,7 @@ from rest_framework import (
     viewsets,
 )
 from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.parsers import FormParser, MultiPartParser
 
 from apps.accounts.models import User
 
@@ -28,6 +29,7 @@ from .models import (
     QuoteReport,
     QuoteRequest,
     RepairShop,
+    RepairShopPhoto,
     Review,
     Service,
     VehicleType,
@@ -40,6 +42,7 @@ from .serializers import (
     QuoteOfferSerializer,
     QuoteReportSerializer,
     QuoteRequestSerializer,
+    RepairShopPhotoSerializer,
     RepairShopSerializer,
     ReviewSerializer,
     ServiceSerializer,
@@ -57,6 +60,13 @@ class ServiceViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Service.objects.filter(is_active=True)
     serializer_class = ServiceSerializer
     permission_classes = [permissions.AllowAny]
+
+    def get_queryset(self):
+        queryset = Service.objects.filter(is_active=True)
+        vehicle = self.request.query_params.get("vehicle")
+        if vehicle:
+            queryset = queryset.filter(vehicle_types__slug=vehicle)
+        return queryset.distinct()
 
 
 class VehicleTypeViewSet(viewsets.ReadOnlyModelViewSet):
@@ -105,8 +115,10 @@ class RepairShopViewSet(viewsets.ModelViewSet):
     http_method_names = ["get", "post", "put", "patch", "delete", "head", "options"]
 
     def get_queryset(self):
-        queryset = RepairShop.objects.filter(is_active=True).select_related("owner")
-        queryset = queryset.prefetch_related("services", "vehicle_types")
+        queryset = RepairShop.objects.filter(
+            is_active=True, owner__is_active=True
+        ).select_related("owner")
+        queryset = queryset.prefetch_related("services", "vehicle_types", "gallery")
         queryset = queryset.annotate(
             average_rating=Avg("reviews__rating", filter=Q(reviews__is_approved=True)),
             approved_review_count=Count(
@@ -130,6 +142,12 @@ class RepairShopViewSet(viewsets.ModelViewSet):
         vehicle = params.get("vehicle")
         if vehicle:
             queryset = queryset.filter(vehicle_types__slug=vehicle)
+            allowed_scopes = {
+                "voiture": (None, "", User.VehicleScope.AUTO, User.VehicleScope.BOTH),
+                "moto": (None, "", User.VehicleScope.MOTO, User.VehicleScope.BOTH),
+            }.get(vehicle)
+            if allowed_scopes:
+                queryset = queryset.filter(owner__vehicle_scope__in=allowed_scopes)
         service = params.get("service")
         if service:
             queryset = queryset.filter(services__slug=service)
@@ -171,6 +189,45 @@ class RepairShopViewSet(viewsets.ModelViewSet):
         if page is not None:
             return self.get_paginated_response(serializer.data)
         return response.Response(serializer.data)
+
+
+    @decorators.action(
+        detail=True,
+        methods=["post"],
+        parser_classes=[MultiPartParser, FormParser],
+    )
+    def photos(self, request, pk=None):
+        shop = self.get_object()
+        if not request.user.is_staff and shop.owner_id != request.user.id:
+            raise PermissionDenied("Seul le propriétaire peut gérer les photos de l’atelier.")
+
+        uploads = request.FILES.getlist("photos")
+        if not uploads:
+            raise ValidationError({"photos": "Ajoutez au moins une photo."})
+        if len(uploads) + shop.gallery.count() > 10:
+            raise ValidationError(
+                {"photos": "Un atelier peut afficher au maximum 10 photos."}
+            )
+
+        serializer = RepairShopPhotoSerializer(
+            data=[{"photo": upload} for upload in uploads],
+            many=True,
+            context=self.get_serializer_context(),
+        )
+        serializer.is_valid(raise_exception=True)
+
+        with transaction.atomic():
+            saved = [
+                RepairShopPhoto.objects.create(shop=shop, **item)
+                for item in serializer.validated_data
+            ]
+
+        return response.Response(
+            RepairShopPhotoSerializer(
+                saved, many=True, context=self.get_serializer_context()
+            ).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class QuoteRequestViewSet(viewsets.ModelViewSet):
