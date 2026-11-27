@@ -116,8 +116,35 @@ class RepairShopViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = RepairShop.objects.filter(
-            is_active=True, owner__is_active=True
-        ).select_related("owner")
+            is_active=True,
+            owner__is_active=True,
+        )
+        if not self.request.user.is_staff:
+            owner_access = (
+                self.request.user.is_authenticated
+                and (
+                    self.action
+                    in {
+                        "retrieve",
+                        "update",
+                        "partial_update",
+                        "destroy",
+                        "submit",
+                        "photos",
+                    }
+                    or self.request.query_params.get("mine") == "true"
+                )
+            )
+            if owner_access:
+                queryset = queryset.filter(
+                    Q(publication_status=RepairShop.PublicationStatus.APPROVED)
+                    | Q(owner_id=self.request.user.id)
+                )
+            else:
+                queryset = queryset.filter(
+                    publication_status=RepairShop.PublicationStatus.APPROVED
+                )
+        queryset = queryset.select_related("owner", "publication_reviewed_by")
         queryset = queryset.prefetch_related("services", "vehicle_types", "gallery")
         queryset = queryset.annotate(
             average_rating=Avg("reviews__rating", filter=Q(reviews__is_approved=True)),
@@ -167,7 +194,71 @@ class RepairShopViewSet(viewsets.ModelViewSet):
             and serializer.instance.owner_id != self.request.user.id
         ):
             raise PermissionDenied("Vous ne pouvez modifier que vos propres ateliers.")
-        serializer.save()
+        if self.request.user.is_staff:
+            serializer.save()
+        else:
+            serializer.save(
+                publication_status=RepairShop.PublicationStatus.DRAFT,
+                publication_review_note="",
+                publication_reviewed_at=None,
+                publication_reviewed_by=None,
+            )
+
+    @decorators.action(detail=True, methods=["post"])
+    def submit(self, request, pk=None):
+        shop = self.get_object()
+        if request.user.is_staff or shop.owner_id != request.user.id:
+            raise PermissionDenied("Seul le propriétaire peut soumettre cet atelier.")
+        if shop.publication_status == RepairShop.PublicationStatus.PENDING:
+            raise ValidationError(
+                {"status": "Cet atelier est déjà en attente de validation."}
+            )
+        if shop.publication_status == RepairShop.PublicationStatus.APPROVED:
+            raise ValidationError({"status": "Cet atelier est déjà publié."})
+
+        required_weekdays = {
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday",
+            "sunday",
+        }
+        missing = []
+        if not shop.photo:
+            missing.append("photo")
+        if shop.latitude is None or shop.longitude is None:
+            missing.append("localisation Google Maps")
+        if set(shop.opening_hours) != required_weekdays:
+            missing.append("horaires pour chaque jour")
+        if not shop.vehicle_types.exists():
+            missing.append("véhicule pris en charge")
+        if not shop.services.exists():
+            missing.append("spécialité")
+        if missing:
+            raise ValidationError(
+                {"details": "Complétez avant l’envoi : " + ", ".join(missing) + "."}
+            )
+
+        shop.publication_status = RepairShop.PublicationStatus.PENDING
+        shop.publication_review_note = ""
+        shop.publication_reviewed_at = None
+        shop.publication_reviewed_by = None
+        shop.save(
+            update_fields=(
+                "publication_status",
+                "publication_review_note",
+                "publication_reviewed_at",
+                "publication_reviewed_by",
+                "updated_at",
+            )
+        )
+        return response.Response(
+            RepairShopSerializer(
+                shop, context=self.get_serializer_context()
+            ).data
+        )
 
     def perform_destroy(self, instance):
         if (

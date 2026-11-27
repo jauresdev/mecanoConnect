@@ -35,7 +35,12 @@ class RegistrationSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, attrs):
-        if attrs.get("role", User.Role.CUSTOMER) != User.Role.MECHANIC and attrs.get("vehicle_scope"):
+        role = attrs.get("role", User.Role.CUSTOMER)
+        if role == User.Role.MECHANIC and not attrs.get("vehicle_scope"):
+            raise serializers.ValidationError(
+                {"vehicle_scope": "Choisissez l’automobile, la moto ou les deux."}
+            )
+        if role != User.Role.MECHANIC and attrs.get("vehicle_scope"):
             raise serializers.ValidationError(
                 {"vehicle_scope": "Ce choix est réservé aux comptes réparateur."}
             )

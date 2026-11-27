@@ -408,6 +408,8 @@ class RepairShopSerializer(serializers.ModelSerializer):
             "mobile_service",
             "opening_hours",
             "is_verified",
+            "publication_status",
+            "publication_review_note",
             "average_rating",
             "review_count",
             "created_at",
@@ -420,6 +422,8 @@ class RepairShopSerializer(serializers.ModelSerializer):
             "owner_profile_photo",
             "gallery",
             "is_verified",
+            "publication_status",
+            "publication_review_note",
             "average_rating",
             "review_count",
             "created_at",
@@ -494,6 +498,25 @@ class RepairShopSerializer(serializers.ModelSerializer):
             if request.user.role != User.Role.MECHANIC and not request.user.is_staff:
                 raise serializers.ValidationError(
                     "Seuls les comptes réparateur peuvent gérer un atelier."
+                )
+
+            latitude = attrs.get(
+                "latitude", self.instance.latitude if self.instance else None
+            )
+            longitude = attrs.get(
+                "longitude", self.instance.longitude if self.instance else None
+            )
+            if (latitude is None) != (longitude is None):
+                raise serializers.ValidationError(
+                    {"latitude": "Les coordonnées GPS doivent être renseignées ensemble."}
+                )
+            if latitude is not None and not (-90 <= latitude <= 90):
+                raise serializers.ValidationError(
+                    {"latitude": "La latitude doit être comprise entre -90 et 90."}
+                )
+            if longitude is not None and not (-180 <= longitude <= 180):
+                raise serializers.ValidationError(
+                    {"longitude": "La longitude doit être comprise entre -180 et 180."}
                 )
 
             vehicle_types = attrs.get(
@@ -663,6 +686,10 @@ class QuoteRequestSerializer(serializers.ModelSerializer):
             if not shop.is_active:
                 raise serializers.ValidationError(
                     {"shop": "Cet atelier n'accepte pas de demandes actuellement."}
+                )
+            if shop.publication_status != RepairShop.PublicationStatus.APPROVED:
+                raise serializers.ValidationError(
+                    {"shop": "Cet atelier n’est pas encore publié."}
                 )
             if shop.owner_id == request.user.id:
                 raise serializers.ValidationError(

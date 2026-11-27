@@ -70,6 +70,7 @@ export const Head = ({ user, onLogout }) => (
       <span className="logo-t">mécano<b>connect</b></span>
     </a>
     <nav className="links" aria-label="Navigation principale">
+      <a href="#accueil" onClick={jump("univers")}>Univers</a>
       <a href="#resultats">Réparateurs</a>
       <a href="#accueil" onClick={jump("services")}>Services</a>
       <a href="#accueil" onClick={jump("comment")}>Comment ça marche</a>
@@ -448,7 +449,18 @@ export const Pins = ({
 export const Seg = ({ q, setQ }) => (
   <div className="seg">
     {[["Moto", "🏍️"], ["Voiture", "🚗"]].map(([t, e]) => (
-      <button type="button" key={t} className={q.type === t ? "on" : ""} onClick={() => setQ({ ...q, type: t })}>
+      <button
+        type="button"
+        key={t}
+        className={q.type === t ? "on" : ""}
+        onClick={() =>
+          setQ({
+            ...q,
+            type: t,
+            service: q.type === t ? q.service : "",
+          })
+        }
+      >
         <span aria-hidden="true">{e}</span> {t}
       </button>
     ))}

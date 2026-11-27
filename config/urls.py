@@ -11,6 +11,12 @@ from rest_framework.generics import GenericAPIView
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
+from .admin_dashboard import admin_dashboard
+
+admin.site.site_header = "Admin"
+admin.site.site_title = "Admin | MécanoConnect"
+admin.site.index_title = "Pilotage de MécanoConnect"
+
 
 class HealthCheckSerializer(serializers.Serializer):
     status = serializers.CharField()
@@ -25,6 +31,7 @@ class HealthCheckView(GenericAPIView):
 
 
 urlpatterns = [
+    path("admin/", admin_dashboard, name="admin-dashboard"),
     path("admin/", admin.site.urls),
     path("api/health/", HealthCheckView.as_view(), name="health"),
     path("api/auth/", include("apps.accounts.urls")),

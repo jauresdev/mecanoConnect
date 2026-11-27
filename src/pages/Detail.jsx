@@ -146,20 +146,44 @@ export default function Detail({ r, session }) {
           <><div>{vis(r)}</div><div>🛞</div><div>🔧</div><div>⚙️</div></>
         )}
       </div>
+      {r.gallery?.length > 0 && (
+        <div className="shop-public-gallery" aria-label="Photos de l’atelier">
+          {r.gallery.map((image, index) => (
+            <img key={`${image}-${index}`} src={image} alt={`Photo ${index + 1} de ${r.n}`} />
+          ))}
+        </div>
+      )}
       <div className="sp">
         <div>
           <div className="card">
             <div className="row">
-              <div className={"av " + tone(r)}>{vis(r)}</div>
+              {r.ownerPhoto ? (
+                <img
+                  className="profile-avatar"
+                  src={r.ownerPhoto}
+                  alt={`Profil de ${r.ownerName || r.n}`}
+                />
+              ) : (
+                <div className={"av " + tone(r)}>{vis(r)}</div>
+              )}
               <div>
                 <h1 style={{ fontSize: 26 }}>{r.n}</h1>
+                {r.ownerName && <div className="mu">{r.ownerName}</div>}
                 <div className="mu">{r.t} · {r.q}, {r.city}</div>
+                {r.isVerified && (
+                  <span className="verification-badge">✓ Professionnel vérifié</span>
+                )}
                 <span className={`shop-availability${availability.open === true ? " is-open" : availability.open === false ? " is-closed" : ""}`}>
                   {availability.label}
                 </span>
               </div>
             </div>
             <p>{r.desc}</p>
+            {r.yearsExperience != null && (
+              <p className="mu">
+                {r.yearsExperience} {r.yearsExperience === 1 ? "an" : "ans"} d’expérience
+              </p>
+            )}
             <Stars r={r} />
             <h3 style={{ margin: "16px 0 8px" }}>Spécialités</h3>
             {r.sp.map((x) => (

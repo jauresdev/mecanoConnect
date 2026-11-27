@@ -5,7 +5,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import format_html
 
-from apps.marketplace.models import RepairShop
+from apps.marketplace.models import Notification
 
 from .models import (
     ProfessionalVerification,
@@ -13,6 +13,7 @@ from .models import (
     VerificationDecision,
     VerificationDocument,
 )
+from .services import sync_professional_verification_badges
 
 
 @admin.register(User)
@@ -34,14 +35,7 @@ class CustomUserAdmin(UserAdmin):
         )
         super().save_model(request, obj, form, change)
         if was_active != obj.is_active:
-            latest = obj.verification_submissions.first()
-            RepairShop.objects.filter(owner=obj).update(
-                is_verified=(
-                    obj.is_active
-                    and latest is not None
-                    and latest.status == ProfessionalVerification.Status.VERIFIED
-                )
-            )
+            sync_professional_verification_badges(obj)
 
 
 class VerificationAdminForm(forms.ModelForm):
@@ -129,12 +123,37 @@ class ProfessionalVerificationAdmin(admin.ModelAdmin):
                 reason=obj.rejection_reason,
                 actor=request.user,
             )
-            RepairShop.objects.filter(owner=obj.user).update(
-                is_verified=(
-                    obj.status == ProfessionalVerification.Status.VERIFIED
-                    and obj.user.is_active
-                )
+            sync_professional_verification_badges(obj.user)
+            latest_verification_id = (
+                ProfessionalVerification.objects.filter(user=obj.user)
+                .values_list("pk", flat=True)
+                .first()
             )
+            if latest_verification_id == obj.pk:
+                status_message = {
+                    ProfessionalVerification.Status.PENDING: (
+                        "Votre demande de vérification est en attente."
+                    ),
+                    ProfessionalVerification.Status.IN_REVIEW: (
+                        "Votre demande de vérification est en cours d’examen."
+                    ),
+                    ProfessionalVerification.Status.VERIFIED: (
+                        "Votre profil professionnel est maintenant vérifié."
+                    ),
+                    ProfessionalVerification.Status.REJECTED: (
+                        "Votre demande de vérification a été refusée."
+                    ),
+                }.get(obj.status, "Le statut de votre vérification a été mis à jour.")
+                if (
+                    obj.status == ProfessionalVerification.Status.REJECTED
+                    and obj.rejection_reason
+                ):
+                    status_message += f" Motif : {obj.rejection_reason}"
+                Notification.objects.create(
+                    recipient=obj.user,
+                    event=f"professional_verification_{obj.status}",
+                    message=status_message,
+                )
             self.message_user(
                 request,
                 "La décision de vérification a été enregistrée.",

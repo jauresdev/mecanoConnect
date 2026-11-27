@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { SE, vis, tone } from "../data";
+import { SE, UNIVERSES, vis, tone } from "../data";
 import { calculateDistanceKm, distanceBand } from "../location";
 import { Pins, Seg, Stars } from "../components/Common";
 
@@ -15,6 +15,7 @@ export default function Results({ q, setQ, sel, pick, shops, loading, error, ser
       (!q.service || r.sp.includes(q.service)) &&
       (!q.lieu || `${r.q} ${r.city}`.toLowerCase().includes(q.lieu.toLowerCase()))
   );
+  const universe = q.type === UNIVERSES.auto.type ? UNIVERSES.auto : UNIVERSES.moto;
   const locateCustomer = () => {
     if (customerPosition || locating) return;
     if (!navigator.geolocation) {
@@ -61,7 +62,13 @@ export default function Results({ q, setQ, sel, pick, shops, loading, error, ser
 
   return (
     <div>
-      <h2 className="ptitle">{L.length} atelier{L.length > 1 ? "s" : ""} à {q.lieu || "Parakou"}</h2>
+      <div className="results-heading">
+        <div>
+          <p className="eyebrow">{universe.name.toUpperCase()}</p>
+          <h2 className="ptitle">{L.length} atelier{L.length > 1 ? "s" : ""} à {q.lieu || "Parakou"}</h2>
+        </div>
+        <a className="more" href="#accueil">Changer d’univers</a>
+      </div>
       <div style={{ margin: "12px 0" }}>
         <Seg q={q} setQ={setQ} />
       </div>
@@ -71,8 +78,8 @@ export default function Results({ q, setQ, sel, pick, shops, loading, error, ser
         ))}
         <select aria-label="Service" style={{ width: "auto" }} value={q.service} onChange={(e) => setQ({ ...q, service: e.target.value })}>
           <option value="">Tous les services</option>
-          {services.map((x) => (
-            <option key={x}>{x}</option>
+          {services.map((service) => (
+            <option key={service.id} value={service.name}>{service.name}</option>
           ))}
         </select>
       </div>
@@ -96,6 +103,9 @@ export default function Results({ q, setQ, sel, pick, shops, loading, error, ser
                     <b>{r.n}</b>
                     <Stars r={r} />
                   </div>
+                  {r.isVerified && (
+                    <span className="verification-badge">✓ Professionnel vérifié</span>
+                  )}
                   <div className="mu sm">{r.t} · {r.q}, {r.city} · {r.h}</div>
                   {customerPosition &&
                     r.latitude != null &&

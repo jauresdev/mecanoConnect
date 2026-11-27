@@ -35,7 +35,9 @@ export default function Quote({ r, q, user }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const compatibleTypes = r.vehicleTypes || [];
+  const compatibleTypes = (r.vehicleTypes || []).filter(
+    (type) => type.name === q.type
+  );
   const selectedVehicle = vehicles.find(
     (vehicle) => String(vehicle.id) === vehicleId
   );
@@ -62,7 +64,7 @@ export default function Quote({ r, q, user }) {
     return () => {
       active = false;
     };
-  }, [r.apiId]);
+  }, [r.apiId, q.type]);
 
   const createVehicle = async () => {
     setError("");
